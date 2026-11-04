@@ -79,6 +79,7 @@ def strip_secrets(env: dict[str, str]) -> dict[str, str]:
     clean = dict(env)
     clean.pop("ORQELLA_MODULE_TOKEN", None)
     clean.pop("ORQELLA_MODULE_CONFIG", None)
+    clean["HOME"] = HOST_HOME
     clean["TERM"] = "xterm-256color"
     clean["COLORTERM"] = "truecolor"
     clean["TERM_PROGRAM"] = "Orqella"

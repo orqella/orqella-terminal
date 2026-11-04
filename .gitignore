@@ -4,3 +4,5 @@ node_modules/
 target/
 __pycache__/
 sidecar.log
+.bash_history
+.zsh_history
