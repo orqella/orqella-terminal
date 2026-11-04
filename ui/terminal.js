@@ -385,7 +385,15 @@
       try {
         const result = await api("/api/status");
         state.wsToken = result.ws_token || "";
-        state.sessions = result.sessions || state.sessions;
+        state.sessions = result.sessions || [];
+        if (!state.sessions.some((session) => session.id === sessionId)) {
+          state.activeId = null;
+          setConnection("dead");
+          showBanner("This session ended while the terminal was disconnected.");
+          renderAll();
+          showEmpty();
+          return;
+        }
       } catch (error) {
         setConnection("dead");
         showBanner("Terminal backend is unavailable");
