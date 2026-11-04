@@ -137,14 +137,14 @@ button { color: inherit; }
 .empty-state p { margin: 0 0 8px; color: var(--term-muted); max-width: 300px; }
 
 .keybar { flex: 0 0 auto; border-top: 1px solid var(--term-line); background: color-mix(in srgb, var(--term-surface) 94%, transparent); padding: 6px 7px; }
-.keys { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
+.keys { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .keys + .keys { margin-top: 4px; }
 .keys::-webkit-scrollbar { display: none; }
 .key {
   flex: 0 0 auto;
-  min-width: 42px;
+  min-width: 40px;
   height: 36px;
-  padding: 0 9px;
+  padding: 0 7px;
   border-radius: 8px;
   border: 1px solid var(--term-line);
   background: var(--term-surface-2);
