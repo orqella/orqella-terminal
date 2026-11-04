@@ -421,7 +421,7 @@
       let message;
       try { message = JSON.parse(event.data); } catch (_) { return; }
       if (message.type === "ready" && message.session) {
-        const updated = message.session;
+        const updated = { ...message.session, attached: Math.max(1, Number(message.session.attached || 0)) };
         const index = state.sessions.findIndex((item) => item.id === updated.id);
         if (index >= 0) state.sessions[index] = { ...state.sessions[index], ...updated };
         updateIdentity();
@@ -747,6 +747,7 @@
     setupTerminal();
     bindUi();
     renderKeys();
+    if (state.config.mobile_toolbar === false) $("keybar").hidden = true;
     setKind("local");
     await loadPrefs();
     state.term.options.fontSize = state.fontSize;
