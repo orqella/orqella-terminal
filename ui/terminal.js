@@ -636,6 +636,7 @@
           const def = KEY_DEFS[Number(button.dataset.key)];
           if (def.toggle === "ctrl") { state.ctrl = !state.ctrl; renderKeys(); return; }
           if (def.toggle === "alt") { state.alt = !state.alt; renderKeys(); return; }
+          if (isMobile() && navigator.vibrate) navigator.vibrate(6);
           if (def.action === "paste") { pasteClipboard(); return; }
           if (def.action === "focus") { state.term.focus(); return; }
           keySequence(def);
@@ -746,6 +747,28 @@
     if (window.ResizeObserver) {
       new ResizeObserver(scheduleFit).observe($("terminalWrap"));
     }
+    let edgeStart = null;
+    $("stage").addEventListener("touchstart", (event) => {
+      if (!isMobile() || event.touches.length !== 1) return;
+      const x = event.touches[0].clientX;
+      edgeStart = x < 28 ? x : null;
+    }, { passive: true });
+    $("stage").addEventListener("touchend", (event) => {
+      if (edgeStart === null) return;
+      const x = event.changedTouches[0]?.clientX ?? edgeStart;
+      if (x - edgeStart > 55) openDrawer();
+      edgeStart = null;
+    }, { passive: true });
+    let drawerStart = null;
+    $("drawer").addEventListener("touchstart", (event) => {
+      if (event.touches.length === 1) drawerStart = event.touches[0].clientX;
+    }, { passive: true });
+    $("drawer").addEventListener("touchend", (event) => {
+      if (drawerStart === null) return;
+      const x = event.changedTouches[0]?.clientX ?? drawerStart;
+      if (drawerStart - x > 55) closeDrawer();
+      drawerStart = null;
+    }, { passive: true });
   }
 
   window.orqella.ready(async (context) => {
