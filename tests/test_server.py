@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -37,6 +38,57 @@ class TerminalBackendTests(unittest.TestCase):
     def test_profile_rejects_bad_kind(self) -> None:
         with self.assertRaises(ValueError):
             server.profile_from_payload({"kind": "telnet", "name": "bad"})
+
+    def test_profile_rejects_unsafe_ssh_fields(self) -> None:
+        for payload in (
+            {"kind": "ssh", "name": "bad", "host": "host;rm", "user": "eolu"},
+            {"kind": "ssh", "name": "bad", "host": "studio", "user": "bad user"},
+            {"kind": "ssh", "name": "bad", "host": "studio", "user": "eolu", "port": 70000},
+        ):
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    server.profile_from_payload(payload)
+
+    def test_profile_requires_an_existing_identity_file(self) -> None:
+        with self.assertRaises(ValueError):
+            server.profile_from_payload({
+                "kind": "ssh",
+                "name": "studio",
+                "host": "studio.local",
+                "user": "eolu",
+                "identity_file": "/definitely/not/here",
+            })
+
+    def test_profile_rejects_control_characters_in_name(self) -> None:
+        with self.assertRaises(ValueError):
+            server.profile_from_payload({"kind": "local", "name": "bad\x00name"})
+
+    def test_ssh_command_uses_identity_and_identities_only(self) -> None:
+        if not server.shutil.which("ssh"):
+            self.skipTest("OpenSSH client is not installed")
+        with tempfile.NamedTemporaryFile() as identity:
+            command = server.ssh_command({
+                "host": "studio.local",
+                "user": "eolu",
+                "identity_file": identity.name,
+            })
+        self.assertIn("-i", command)
+        self.assertIn("IdentitiesOnly=yes", command)
+        self.assertEqual(command[-1], "eolu@studio.local")
+
+    def test_windows_pty_explains_the_missing_dependency(self) -> None:
+        had = hasattr(server, "PtyProcess")
+        old = getattr(server, "PtyProcess", None)
+        server.PtyProcess = None
+        try:
+            with self.assertRaises(RuntimeError) as raised:
+                server.WindowsPty(["cmd"], str(Path.cwd()), {}, 80, 24)
+            self.assertIn("pywinpty", str(raised.exception))
+        finally:
+            if had:
+                server.PtyProcess = old
+            else:
+                del server.PtyProcess
 
     def test_websocket_token_is_not_empty(self) -> None:
         self.assertGreaterEqual(len(server.WS_TOKEN), 32)
