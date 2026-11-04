@@ -33,6 +33,7 @@
     autoStarted: false,
     fontSize: 14,
     lastSession: "",
+    wsToken: "",
     kind: "local",
     ctrl: false,
     alt: false,
@@ -158,7 +159,7 @@
     const scheme = location.protocol === "https:" ? "wss" : "ws";
     const match = location.pathname.match(/^(.*\/m\/terminal)\/?/);
     const prefix = match ? `${match[1]}/` : location.pathname.replace(/[^/]*$/, "");
-    return `${scheme}://${location.host}${prefix}ws/terminal?session=${encodeURIComponent(sessionId)}`;
+    return `${scheme}://${location.host}${prefix}ws/terminal?session=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(state.wsToken)}`;
   }
 
   function setConnection(status) {
@@ -283,6 +284,7 @@
     try {
       const result = await api("/api/status");
       state.status = result;
+      state.wsToken = result.ws_token || "";
       state.sessions = result.sessions || [];
       state.profiles = result.profiles || [];
       renderAll();
@@ -374,11 +376,23 @@
     connectSocket(sessionId, focus);
   }
 
-  function connectSocket(sessionId, focus) {
+  async function connectSocket(sessionId, focus) {
     const generation = ++state.generation;
     state.intentionalClose = false;
     clearTimeout(state.retryTimer);
     state.retryTimer = null;
+    if (!state.wsToken) {
+      try {
+        const result = await api("/api/status");
+        state.wsToken = result.ws_token || "";
+        state.sessions = result.sessions || state.sessions;
+      } catch (error) {
+        setConnection("dead");
+        showBanner("Terminal backend is unavailable");
+        return;
+      }
+    }
+    if (generation !== state.generation) return;
     let socket;
     try {
       socket = new WebSocket(wsUrl(sessionId));
@@ -442,6 +456,7 @@
       setConnection("busy");
       showBanner(`Connection lost · retrying in ${Math.round(state.retryDelay / 1000)}s`);
       clearTimeout(state.retryTimer);
+      state.wsToken = "";
       state.retryTimer = setTimeout(() => {
         if (generation !== state.generation) return;
         state.retryDelay = Math.min(8000, Math.round(state.retryDelay * 1.6));

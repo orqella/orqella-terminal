@@ -45,6 +45,7 @@ WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_SESSIONS = 16
 MAX_FRAME = 4 * 1024 * 1024
 REPLAY_CHUNK = 32 * 1024
+WS_TOKEN = uuid.uuid4().hex
 
 if IS_WINDOWS:
     try:
@@ -579,6 +580,7 @@ def status_payload() -> dict:
         "default_shell": default_shell(),
         "sessions": sessions,
         "profiles": profiles,
+        "ws_token": WS_TOKEN,
         "data_dir": str(DATA_DIR),
     }
 
@@ -743,7 +745,10 @@ class Handler(BaseHTTPRequestHandler):
     def handle_ws(self, parsed: ParsedPath) -> None:
         if not self.authorized():
             return
-        session_id = (parse_qs(parsed.query).get("session") or [""])[0]
+        query = parse_qs(parsed.query)
+        session_id = (query.get("session") or [""])[0]
+        if (query.get("token") or [""])[0] != WS_TOKEN:
+            return self.send_json(403, {"error": "invalid terminal websocket token"})
         with SESSIONS_LOCK:
             session = SESSIONS.get(session_id)
         if not session:
