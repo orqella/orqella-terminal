@@ -1,0 +1,84 @@
+schema = 1
+id = "terminal"
+name = "Terminal"
+version = "0.1.0"
+api_version = "1"
+description = "Persistent local shells and SSH sessions with a mobile-first terminal."
+entry = "ui/index.html"
+overview = "ui/overview.html"
+settings = "ui/settings.html"
+overview_default = true
+page_default = true
+icon = "ui/icon.svg"
+node_scope = "node"
+permissions = ["backend", "storage"]
+
+[ui]
+surface = "page"
+overview_width = 3
+overview_height = 2
+
+[backend]
+kind = "sidecar"
+command = ["python3", "backend/server.py"]
+health_path = "/health"
+ready_timeout_ms = 15000
+sandbox = false
+platforms = ["linux", "macos", "windows"]
+
+[[config.fields]]
+key = "default_shell"
+type = "text"
+label = "Default shell"
+default = ""
+help = "Leave blank to use $SHELL, then zsh, bash, fish, or sh. On Windows, pwsh, powershell, or cmd."
+
+[[config.fields]]
+key = "scrollback_kb"
+type = "number"
+label = "Replay buffer (KB)"
+default = 512
+min = 64
+max = 4096
+step = 64
+help = "Output kept for reattaching after a reload or phone lock. It is capped per session."
+
+[[config.fields]]
+key = "font_size"
+type = "number"
+label = "Terminal font size"
+default = 14
+min = 10
+max = 24
+step = 1
+
+[[config.fields]]
+key = "cursor_style"
+type = "select"
+label = "Cursor"
+default = "block"
+options = [
+  { value = "block", label = "Block" },
+  { value = "underline", label = "Underline" },
+  { value = "bar", label = "Bar" },
+]
+
+[[config.fields]]
+key = "mobile_toolbar"
+type = "boolean"
+label = "Mobile key toolbar"
+default = true
+help = "Show Esc, Tab, arrows, Ctrl, and Paste above the keyboard."
+
+[[config.fields]]
+key = "confirm_close"
+type = "boolean"
+label = "Confirm before closing a session"
+default = true
+
+[[config.fields]]
+key = "auto_start"
+type = "boolean"
+label = "Open a local shell automatically"
+default = true
+help = "Create a local session when the page opens and no session is running."

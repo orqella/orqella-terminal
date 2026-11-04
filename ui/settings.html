@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Terminal settings</title>
+  <link rel="stylesheet" href="/assets/theme.css">
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <main class="settings">
+    <header class="settings-head">
+      <div>
+        <p class="eyebrow">Terminal</p>
+        <h1>Connections</h1>
+        <p class="muted" id="platform">Checking this host…</p>
+      </div>
+      <button class="ghost" id="refresh" type="button">Refresh</button>
+    </header>
+
+    <section>
+      <div class="section-head"><h2>Saved connections</h2><span class="muted" id="count"></span></div>
+      <div id="profiles" class="profile-grid"><div class="empty">Loading…</div></div>
+    </section>
+
+    <section class="editor" id="editor">
+      <div class="section-head"><h2 id="editorTitle">Add connection</h2><button class="ghost small" id="reset" type="button">Clear</button></div>
+      <form id="profileForm">
+        <div class="segmented">
+          <button type="button" data-kind="local" class="active">Local shell</button>
+          <button type="button" data-kind="ssh">SSH host</button>
+        </div>
+        <div class="fields">
+          <label class="field-label full">Name<input class="field" id="name" placeholder="studio" autocomplete="off"></label>
+          <label class="field-label full" data-ssh>Host<input class="field" id="host" placeholder="studio.local" autocomplete="off" spellcheck="false"></label>
+          <label class="field-label" data-ssh>User<input class="field" id="user" placeholder="eolu" autocomplete="username" spellcheck="false"></label>
+          <label class="field-label" data-ssh>Port<input class="field" id="port" type="number" min="1" max="65535" value="22"></label>
+          <label class="field-label full" data-ssh>Identity file <span class="muted">optional</span><input class="field" id="identity" placeholder="~/.ssh/id_ed25519" autocomplete="off" spellcheck="false"></label>
+          <label class="field-label full" data-local>Shell<input class="field" id="shell" placeholder="Use the module default" autocomplete="off" spellcheck="false"></label>
+          <label class="field-label full" data-local>Working directory<input class="field" id="cwd" placeholder="~" autocomplete="off" spellcheck="false"></label>
+        </div>
+        <p class="hint">SSH uses your OpenSSH config, agent, and known_hosts. Orqella never stores passwords. Identity file is a path on the terminal host.</p>
+        <p class="error" id="error" hidden></p>
+        <div class="actions"><span class="muted" id="status"></span><button class="primary" id="save" type="submit">Save connection</button></div>
+      </form>
+    </section>
+  </main>
+  <div class="toast" id="toast" hidden></div>
+  <script src="settings.js"></script>
+</body>
+</html>
