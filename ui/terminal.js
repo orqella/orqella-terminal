@@ -604,34 +604,38 @@
     { label: "↑", data: "\x1b[A", icon: true },
     { label: "↓", data: "\x1b[B", icon: true },
     { label: "→", data: "\x1b[C", icon: true },
-    { label: "/", data: "/" },
-    { label: "-", data: "-" },
-    { label: "|", data: "|" },
-    { label: "~", data: "~" },
-    { label: "C", letter: "c" },
-    { label: "D", letter: "d" },
-    { label: "Z", letter: "z" },
-    { label: "L", letter: "l" },
     { label: "Paste", action: "paste", wide: true },
     { label: "⌨", action: "focus", icon: true },
+    { label: "/", data: "/", secondary: true },
+    { label: "-", data: "-", secondary: true },
+    { label: "|", data: "|", secondary: true },
+    { label: "~", data: "~", secondary: true },
+    { label: "C", letter: "c", secondary: true },
+    { label: "D", letter: "d", secondary: true },
+    { label: "Z", letter: "z", secondary: true },
+    { label: "L", letter: "l", secondary: true },
   ];
 
   function renderKeys() {
-    const bar = $("keys");
-    bar.innerHTML = KEY_DEFS.map((def, index) => {
-      const active = (def.toggle === "ctrl" && state.ctrl) || (def.toggle === "alt" && state.alt);
-      return `<button class="key ${def.wide ? "wide" : ""} ${def.icon ? "icon" : ""} ${active ? "active" : ""}" type="button" data-key="${index}">${esc(def.label)}</button>`;
-    }).join("");
-    bar.querySelectorAll("[data-key]").forEach((button) => {
-      button.onclick = () => {
-        const def = KEY_DEFS[Number(button.dataset.key)];
-        if (def.toggle === "ctrl") { state.ctrl = !state.ctrl; renderKeys(); return; }
-        if (def.toggle === "alt") { state.alt = !state.alt; renderKeys(); return; }
-        if (def.action === "paste") { pasteClipboard(); return; }
-        if (def.action === "focus") { state.term.focus(); return; }
-        keySequence(def);
-      };
-    });
+    const render = (bar, defs) => {
+      bar.innerHTML = defs.map((def) => {
+        const index = KEY_DEFS.indexOf(def);
+        const active = (def.toggle === "ctrl" && state.ctrl) || (def.toggle === "alt" && state.alt);
+        return `<button class="key ${def.wide ? "wide" : ""} ${def.icon ? "icon" : ""} ${active ? "active" : ""}" type="button" data-key="${index}">${esc(def.label)}</button>`;
+      }).join("");
+      bar.querySelectorAll("[data-key]").forEach((button) => {
+        button.onclick = () => {
+          const def = KEY_DEFS[Number(button.dataset.key)];
+          if (def.toggle === "ctrl") { state.ctrl = !state.ctrl; renderKeys(); return; }
+          if (def.toggle === "alt") { state.alt = !state.alt; renderKeys(); return; }
+          if (def.action === "paste") { pasteClipboard(); return; }
+          if (def.action === "focus") { state.term.focus(); return; }
+          keySequence(def);
+        };
+      });
+    };
+    render($("keysPrimary"), KEY_DEFS.filter((def) => !def.secondary));
+    render($("keysSecondary"), KEY_DEFS.filter((def) => def.secondary));
   }
 
   function bindUi() {

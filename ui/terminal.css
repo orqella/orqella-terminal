@@ -138,6 +138,7 @@ button { color: inherit; }
 
 .keybar { flex: 0 0 auto; border-top: 1px solid var(--term-line); background: color-mix(in srgb, var(--term-surface) 94%, transparent); padding: 6px 7px; }
 .keys { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
+.keys + .keys { margin-top: 4px; }
 .keys::-webkit-scrollbar { display: none; }
 .key {
   flex: 0 0 auto;
