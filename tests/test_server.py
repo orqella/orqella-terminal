@@ -45,6 +45,13 @@ class TerminalBackendTests(unittest.TestCase):
     def test_websocket_token_is_not_empty(self) -> None:
         self.assertGreaterEqual(len(server.WS_TOKEN), 32)
 
+    def test_page_loads_vendored_xterm_stylesheet_first(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "ui" / "index.html").read_text(encoding="utf-8")
+        self.assertTrue((root / "ui" / "vendor" / "xterm" / "xterm.css").is_file())
+        self.assertIn('href="vendor/xterm/xterm.css"', page)
+        self.assertLess(page.index("vendor/xterm/xterm.css"), page.index("terminal.css"))
+
 
 if __name__ == "__main__":
     unittest.main()

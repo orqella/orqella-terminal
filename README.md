@@ -58,5 +58,8 @@ the daemon.
 
 ## Vendored UI
 
-xterm.js 5.5.0 and the fit, web-links, and Unicode 11 addons are vendored under
-`ui/vendor/xterm` under their MIT licenses. No CDN is used.
+xterm.js 5.5.0, its base stylesheet, and the fit, web-links, and Unicode 11
+addons are vendored under `ui/vendor/xterm` under their MIT licenses. No CDN is
+used. The page loads the vendored xterm stylesheet before the Terminal
+stylesheet so xterm's helper and measurement elements stay hidden and its
+screen/viewport layout is correct.
