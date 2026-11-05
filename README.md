@@ -1,18 +1,18 @@
 # Terminal
 
-A persistent terminal for Orqella: local shells and SSH sessions with a
-mobile-first UI built around xterm.js.
+A persistent local terminal for Orqella with a mobile-first tabbed UI built
+around xterm.js.
 
 ## What it does
 
 - Starts real PTYs for local shells on Linux, macOS, and Windows.
-- Keeps sessions alive when the page closes, the phone locks, or the connection
-  drops. Reopening the page replays the recent output and reattaches.
-- Supports multiple sessions, a saved-connection drawer, and a Termius-style
-  mobile key bar (Esc, Tab, arrows, Ctrl/Alt, common symbols, paste, keyboard).
-- Connects to SSH hosts using the host's OpenSSH client, config, agent, and
-  `known_hosts`. Passwords are never stored.
-- Uses the selected Orqella theme for chrome and terminal colors.
+- Keeps tabs alive when the page closes, the phone locks, or the connection
+  drops. Reopening the page replays recent output and reattaches.
+- Supports multiple local tabs from a compact top bar and a Termius-style mobile
+  key bar (Esc, Tab, arrows, Ctrl/Alt, common symbols, paste, keyboard).
+- Uses the selected Orqella theme for chrome and terminal colors. The module
+  loads `/assets/theme.css` and `/assets/module.css`, then its own CSS for
+  terminal-specific layout.
 
 ## Install
 
@@ -33,15 +33,11 @@ python -m pip install pywinpty
 Linux and macOS use the standard library `pty` module and need no extra
 packages.
 
-## Connections
+## Tabs
 
-Saved connections live in the module's `data/profiles.json`. SSH profiles store
-the host, user, port, and an optional identity-file path; they never store a
-password or private key. Identity-file paths are resolved on the terminal host,
-not on the phone.
-
-The mobile drawer is meant for quick switching. Use **Add SSH connection** in
-the drawer or the module's Settings tab to manage presets.
+Each tab is an independent local shell on the machine running the daemon. Tabs
+are not saved across a daemon restart, but they stay attached while the page is
+closed. Create a tab with **＋**; close it from the tab strip or the menu.
 
 ## Mobile
 
@@ -55,10 +51,10 @@ the drawer or the module's Settings tab to manage presets.
 ## Security
 
 This module runs unsandboxed (`backend.sandbox = false`) because it must spawn
-the user's shell, SSH client, and PTY. Treat it like any local terminal. The
-sidecar strips the Orqella module token from the child environment. It binds
-only loopback and authenticates both HTTP and WebSocket requests with the module
-token supplied by the daemon.
+the user's shell and PTY. Treat it like any local terminal. The sidecar strips
+the Orqella module token from the child environment. It binds only loopback and
+authenticates both HTTP and WebSocket requests with the module token supplied by
+the daemon.
 
 ## Vendored UI
 

@@ -19,7 +19,6 @@
     config: {},
     status: null,
     sessions: [],
-    profiles: [],
     activeId: null,
     term: null,
     fit: null,
@@ -34,7 +33,6 @@
     fontSize: 14,
     lastSession: "",
     wsToken: "",
-    kind: "local",
     ctrl: false,
     alt: false,
   };
@@ -43,7 +41,7 @@
     const el = $("toast");
     if (!el) return;
     el.textContent = message;
-    el.style.borderColor = bad ? "var(--term-danger)" : "";
+    el.style.borderColor = bad ? "var(--red)" : "";
     el.hidden = false;
     clearTimeout(state.toastTimer);
     state.toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
@@ -68,31 +66,39 @@
     } catch (_) {}
   }
 
+  function cssToken(name, fallback) {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+  }
+
+  function syncThemeColor() {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = cssToken("--bg", "#1e1e2e");
+  }
+
   function buildTheme() {
-    const css = getComputedStyle(document.documentElement);
-    const token = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
     return {
-      background: token("--term-bg", "#0a0f13"),
-      foreground: token("--term-ink", "#e7f0ee"),
-      cursor: token("--term-accent", "#7bd7b6"),
-      cursorAccent: token("--term-bg", "#0a0f13"),
-      selectionBackground: "rgba(123, 215, 182, 0.28)",
-      black: "#10181d",
-      red: "#f38ba8",
-      green: "#8bd5a4",
-      yellow: "#f9e2af",
-      blue: "#89b4fa",
-      magenta: "#cba6f7",
-      cyan: "#89dceb",
-      white: "#d9e6e2",
-      brightBlack: "#5c7078",
-      brightRed: "#ff9eb5",
-      brightGreen: "#a6e3b7",
-      brightYellow: "#ffe9b8",
-      brightBlue: "#a7c8ff",
-      brightMagenta: "#e0c4ff",
-      brightCyan: "#b4f0fa",
-      brightWhite: "#f3fbf8",
+      background: cssToken("--bg", "#1e1e2e"),
+      foreground: cssToken("--ink", "#cdd6f4"),
+      cursor: cssToken("--mint", "#89b4fa"),
+      cursorAccent: cssToken("--bg", "#1e1e2e"),
+      selectionBackground: cssToken("--accent-soft", "rgba(137, 180, 250, .2)"),
+      black: cssToken("--bg-inset", "#11111b"),
+      red: cssToken("--red", "#f38ba8"),
+      green: cssToken("--green", "#a6e3a1"),
+      yellow: cssToken("--amber", "#f9e2af"),
+      blue: cssToken("--blue", "#89b4fa"),
+      magenta: cssToken("--accent-2", "#cba6f7"),
+      cyan: cssToken("--mint-dim", "#74c7ec"),
+      white: cssToken("--ink", "#cdd6f4"),
+      brightBlack: cssToken("--muted-2", "#7f849c"),
+      brightRed: cssToken("--red", "#f38ba8"),
+      brightGreen: cssToken("--green", "#a6e3a1"),
+      brightYellow: cssToken("--amber-2", "#fab387"),
+      brightBlue: cssToken("--blue", "#89b4fa"),
+      brightMagenta: cssToken("--accent-2", "#cba6f7"),
+      brightCyan: cssToken("--mint", "#89b4fa"),
+      brightWhite: cssToken("--ink", "#cdd6f4"),
     };
   }
 
@@ -101,8 +107,7 @@
       allowProposedApi: true,
       cursorBlink: true,
       cursorStyle: String(state.config.cursor_style || "block"),
-      fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--term-font").trim()
-        || 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace',
+      fontFamily: cssToken("--font-mono", 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace'),
       fontSize: state.fontSize,
       fontWeight: "400",
       fontWeightBold: "650",
@@ -123,15 +128,13 @@
     } catch (_) {}
     state.term.open($("terminal"));
     state.term.onData((data) => sendInput(data));
-    state.term.onResize(() => updateSize());
+    state.term.onResize(() => sendResize());
     state.term.onTitleChange((title) => {
       if (!state.activeId || !title) return;
       const session = state.sessions.find((item) => item.id === state.activeId);
-      if (session) {
-        session.title = title.trim().slice(0, 80) || session.title;
-        $("sessionTitle").textContent = session.title;
-        renderSessions();
-      }
+      if (!session) return;
+      session.title = title.trim().slice(0, 80) || session.title;
+      renderTabs();
     });
     requestAnimationFrame(() => fitTerminal());
   }
@@ -145,14 +148,8 @@
     if (!state.term || !state.fit) return;
     try {
       state.fit.fit();
-      updateSize();
       sendResize();
     } catch (_) {}
-  }
-
-  function updateSize() {
-    if (!state.term) return;
-    $("sizeText").textContent = `${state.term.cols} × ${state.term.rows}`;
   }
 
   function wsUrl(sessionId) {
@@ -160,15 +157,6 @@
     const match = location.pathname.match(/^(.*\/m\/terminal)\/?/);
     const prefix = match ? `${match[1]}/` : location.pathname.replace(/[^/]*$/, "");
     return `${scheme}://${location.host}${prefix}ws/terminal?session=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(state.wsToken)}`;
-  }
-
-  function setConnection(status) {
-    const dot = $("connectionDot");
-    dot.className = "status-dot " + status;
-    const online = status === "online";
-    $("statusText").textContent = online
-      ? (state.status?.platform ? `${state.status.platform} · connected` : "Connected")
-      : status === "busy" ? "Connecting…" : "Disconnected";
   }
 
   function showBanner(text) {
@@ -180,104 +168,44 @@
     $("banner").hidden = true;
   }
 
-  function updateIdentity() {
-    const session = state.sessions.find((item) => item.id === state.activeId);
-    if (!session) {
-      $("sessionTitle").textContent = "Terminal";
-      $("sessionMeta").textContent = "No session selected";
-      return;
-    }
-    $("sessionTitle").textContent = session.title || "Terminal";
-    const meta = session.kind === "ssh"
-      ? `${session.user || "user"}@${session.host || "host"}`
-      : `${session.command || "shell"} · ${session.cwd || "~"}`;
-    const attached = Number(session.attached || 0);
-    $("sessionMeta").textContent = `${meta}${attached > 1 ? ` · ${attached} attached` : ""}${session.status === "exited" ? " · exited" : ""}`;
-  }
-
-  function renderSessions() {
-    const list = $("sessionList");
+  function renderTabs() {
+    const tabs = $("tabs");
     if (!state.sessions.length) {
-      list.innerHTML = `<div class="empty small">No sessions yet. Start a local shell or SSH connection.</div>`;
+      tabs.innerHTML = "";
       return;
     }
-    list.innerHTML = state.sessions.map((session) => {
-      const statusClass = session.status === "exited" ? "dead" : "online";
-      const meta = session.kind === "ssh"
-        ? `${session.user || "user"}@${session.host || "host"}`
-        : `${session.command || "shell"} · ${session.cwd || "~"}`;
-      return `<div class="session-row ${session.id === state.activeId ? "active" : ""}" data-session="${esc(session.id)}">
-        <span class="session-glyph"><span class="status-dot ${statusClass}"></span></span>
-        <div class="session-copy"><b>${esc(session.title || "Terminal")}</b><small>${esc(meta)}${session.attached ? " · attached" : ""}</small></div>
-        <button class="close-session" data-close-session="${esc(session.id)}" type="button" aria-label="Close session">✕</button>
+    tabs.innerHTML = state.sessions.map((session) => {
+      const active = session.id === state.activeId;
+      const status = session.status === "exited" ? " · exited" : "";
+      return `<div class="tab ${active ? "active" : ""}" role="tab" tabindex="0" aria-selected="${active}" data-tab="${esc(session.id)}" title="${esc(session.title || "Terminal")}${status}">
+        <span class="tab-title">${esc(session.title || "Terminal")}</span>
+        <button class="tab-close" type="button" data-close-tab="${esc(session.id)}" aria-label="Close tab">×</button>
       </div>`;
     }).join("");
-    list.querySelectorAll("[data-session]").forEach((row) => {
-      row.onclick = (event) => {
-        if (event.target.closest("[data-close-session]")) return;
-        attachTo(row.dataset.session, true);
-        closeDrawer();
+    tabs.querySelectorAll("[data-tab]").forEach((tab) => {
+      tab.onclick = (event) => {
+        if (event.target.closest("[data-close-tab]")) return;
+        attachTo(tab.dataset.tab, true);
       };
-    });
-    list.querySelectorAll("[data-close-session]").forEach((button) => {
-      button.onclick = (event) => {
-        event.stopPropagation();
-        closeSession(button.dataset.closeSession);
-      };
-    });
-  }
-
-  function renderProfiles() {
-    const list = $("profileList");
-    $("profileCount").textContent = state.profiles.length ? String(state.profiles.length) : "";
-    const rows = state.profiles.map((profile) => {
-      const meta = profile.kind === "ssh"
-        ? `${profile.user || "user"}@${profile.host || "host"}${profile.port && profile.port !== 22 ? `:${profile.port}` : ""}`
-        : (profile.shell || "local shell");
-      return `<div class="profile-row" data-profile="${esc(profile.id)}">
-        <span class="profile-icon">${profile.kind === "ssh" ? "⇢" : "›_"}</span>
-        <div><b>${esc(profile.name)}</b><small>${esc(meta)}</small></div>
-      </div>`;
-    }).join("");
-    list.innerHTML = rows + `<div class="profile-row" data-add-profile="1"><span class="profile-icon">＋</span><div><b>Add SSH connection</b><small>Use a key, agent, or SSH config</small></div></div>`;
-    list.querySelectorAll("[data-profile]").forEach((row) => {
-      row.onclick = () => {
-        const profile = state.profiles.find((item) => item.id === row.dataset.profile);
-        if (profile) {
-          createSession(profile.kind === "ssh"
-            ? { kind: "ssh", profile_id: profile.id, title: profile.name }
-            : { kind: "local", profile_id: profile.id, title: profile.name });
-          closeDrawer();
+      tab.onkeydown = (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          attachTo(tab.dataset.tab, true);
         }
       };
     });
-    list.querySelector("[data-add-profile]").onclick = () => openNewSheet("ssh");
-  }
-
-  function renderStatus() {
-    if (!state.status) return;
-    const shells = (state.status.shells || []).length;
-    const ssh = state.status.capabilities?.ssh ? "ssh ready" : "ssh unavailable";
-    $("platformLabel").textContent = `${state.status.platform} · ${shells} shell${shells === 1 ? "" : "s"} · ${ssh}`;
-    if (state.status.capabilities?.windows_pty === false) {
-      $("drawerHint").textContent = "Install pywinpty on this Windows host to enable terminals.";
-    }
-    const select = $("shellSelect");
-    const current = select.value;
-    select.innerHTML = (state.status.shells || []).map((shell) =>
-      `<option value="${esc(shell.id)}">${esc(shell.name)} — ${esc(shell.path)}</option>`).join("");
-    if (current && (state.status.shells || []).some((shell) => shell.id === current)) select.value = current;
-    else if (state.status.default_shell) select.value = state.status.default_shell;
-    const sshDisabled = !state.status.capabilities?.ssh;
-    $("connectButton").disabled = false;
-    $("connectButton").title = sshDisabled && state.kind === "ssh" ? "OpenSSH is not available on this host" : "";
+    tabs.querySelectorAll("[data-close-tab]").forEach((button) => {
+      button.onclick = (event) => {
+        event.stopPropagation();
+        closeSession(button.dataset.closeTab);
+      };
+    });
+    const active = tabs.querySelector(".tab.active");
+    if (active) active.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
   function renderAll() {
-    renderSessions();
-    renderProfiles();
-    renderStatus();
-    updateIdentity();
+    renderTabs();
   }
 
   async function refresh() {
@@ -286,33 +214,31 @@
       state.status = result;
       state.wsToken = result.ws_token || "";
       state.sessions = result.sessions || [];
-      state.profiles = result.profiles || [];
-      renderAll();
       if (state.activeId && !state.sessions.some((session) => session.id === state.activeId)) {
         state.activeId = null;
       }
+      renderAll();
       if (!state.activeId) {
         const preferred = state.lastSession && state.sessions.find((session) => session.id === state.lastSession);
         if (preferred) await attachTo(preferred.id, false);
         else if (state.sessions.length) await attachTo(state.sessions[0].id, false);
         else if (state.config.auto_start !== false && !state.autoStarted) {
           state.autoStarted = true;
-          await createSession({ kind: "local" }, false);
+          await createSession({}, false);
         } else {
           showEmpty();
         }
       }
     } catch (error) {
-      setConnection("dead");
       showBanner("Terminal backend is unavailable");
-      $("statusText").textContent = String(error.message || error);
+      toast(String(error.message || error), true);
     }
   }
 
   function showEmpty() {
     $("emptyState").hidden = false;
     $("terminalWrap").style.visibility = "hidden";
-    updateIdentity();
+    renderTabs();
   }
 
   function hideEmpty() {
@@ -320,25 +246,24 @@
     $("terminalWrap").style.visibility = "";
   }
 
-  async function createSession(payload, focus = true) {
+  async function createSession(payload = {}, focus = true) {
     try {
-      const result = await api("/api/sessions", "POST", payload);
+      const result = await api("/api/sessions", "POST", {
+        cols: state.term?.cols || 80,
+        rows: state.term?.rows || 24,
+        ...payload,
+      });
       const session = result.session;
       state.sessions.push(session);
       state.lastSession = session.id;
       savePrefs();
+      hideEmpty();
       renderAll();
-      hideSheet();
       await attachTo(session.id, focus);
-      toast(session.kind === "ssh" ? `Connecting to ${session.title}` : "Local shell opened");
+      toast("New tab opened");
     } catch (error) {
-      const message = String(error.message || error);
-      if (!$("newSheet").hidden) {
-        $("formError").textContent = message;
-        $("formError").hidden = false;
-      } else {
-        toast(message, true);
-      }
+      if (!state.sessions.length) showEmpty();
+      toast(String(error.message || error), true);
     }
   }
 
@@ -357,6 +282,7 @@
     if (!session) return;
     if (state.activeId === sessionId && state.socket && state.socket.readyState === WebSocket.OPEN) {
       if (focus) state.term.focus();
+      renderTabs();
       fitTerminal();
       return;
     }
@@ -368,10 +294,8 @@
     hideEmpty();
     state.term.reset();
     state.term.clear();
-    setConnection("busy");
     hideBanner();
-    updateIdentity();
-    renderSessions();
+    renderTabs();
     requestAnimationFrame(fitTerminal);
     connectSocket(sessionId, focus);
   }
@@ -388,14 +312,12 @@
         state.sessions = result.sessions || [];
         if (!state.sessions.some((session) => session.id === sessionId)) {
           state.activeId = null;
-          setConnection("dead");
-          showBanner("This session ended while the terminal was disconnected.");
+          showBanner("This tab ended while the terminal was disconnected.");
           renderAll();
           showEmpty();
           return;
         }
       } catch (error) {
-        setConnection("dead");
         showBanner("Terminal backend is unavailable");
         return;
       }
@@ -405,7 +327,6 @@
     try {
       socket = new WebSocket(wsUrl(sessionId));
     } catch (error) {
-      setConnection("dead");
       showBanner(String(error.message || error));
       return;
     }
@@ -414,7 +335,6 @@
     socket.onopen = () => {
       if (generation !== state.generation) return;
       state.retryDelay = 900;
-      setConnection("online");
       hideBanner();
       fitTerminal();
       sendResize();
@@ -432,36 +352,30 @@
         const updated = { ...message.session, attached: Math.max(1, Number(message.session.attached || 0)) };
         const index = state.sessions.findIndex((item) => item.id === updated.id);
         if (index >= 0) state.sessions[index] = { ...state.sessions[index], ...updated };
-        updateIdentity();
-        renderSessions();
+        renderTabs();
         if (updated.status === "exited") {
-          setConnection("dead");
-          showBanner("This session has exited. Close it or open a new session.");
+          showBanner("This tab has exited. Close it or open a new tab.");
         } else {
-          setConnection("online");
+          hideBanner();
         }
       } else if (message.type === "exit") {
-        setConnection("dead");
-        showBanner("Session exited. Close it or open a new session.");
+        showBanner("Tab exited. Close it or open a new tab.");
         const current = state.sessions.find((item) => item.id === state.activeId);
         if (current) current.status = "exited";
-        renderSessions();
-        updateIdentity();
+        renderTabs();
       }
     };
     socket.onerror = () => {
       if (generation !== state.generation) return;
-      setConnection("dead");
+      showBanner("Connection lost");
     };
     socket.onclose = () => {
       if (generation !== state.generation || state.intentionalClose) return;
       const session = state.sessions.find((item) => item.id === state.activeId);
       if (session?.status === "exited") {
-        setConnection("dead");
-        showBanner("Session exited. Close it or open a new session.");
+        showBanner("Tab exited. Close it or open a new tab.");
         return;
       }
-      setConnection("busy");
       showBanner(`Connection lost · retrying in ${Math.round(state.retryDelay / 1000)}s`);
       clearTimeout(state.retryTimer);
       state.wsToken = "";
@@ -493,58 +407,26 @@
     const session = state.sessions.find((item) => item.id === sessionId);
     if (!session) return;
     if (state.config.confirm_close !== false && session.status !== "exited"
-      && !confirm(`Close ${session.title || "this session"}?`)) return;
+      && !confirm(`Close ${session.title || "this tab"}?`)) return;
     try {
       await api(`/api/sessions/${encodeURIComponent(sessionId)}`, "DELETE", {});
     } catch (error) {
       toast(String(error.message || error), true);
       return;
     }
+    const index = state.sessions.findIndex((item) => item.id === sessionId);
     state.sessions = state.sessions.filter((item) => item.id !== sessionId);
     if (state.activeId === sessionId) {
       disconnectSocket();
       state.activeId = null;
       state.term.reset();
       state.term.clear();
-      showEmpty();
+      const next = state.sessions[Math.min(index, state.sessions.length - 1)];
+      if (next) await attachTo(next.id, true);
+      else showEmpty();
     }
     renderAll();
-    toast("Session closed");
-  }
-
-  function openNewSheet(kind = "local") {
-    $("newSheet").hidden = false;
-    $("sheetBackdrop").hidden = false;
-    setKind(kind);
-    $("formError").hidden = true;
-    $("formError").textContent = "";
-    requestAnimationFrame(() => {
-      if (kind === "local") $("shellSelect").focus();
-    });
-  }
-
-  function hideSheet() {
-    $("newSheet").hidden = true;
-    $("sheetBackdrop").hidden = true;
-  }
-
-  function setKind(kind) {
-    state.kind = kind;
-    document.querySelectorAll(".segmented button").forEach((button) => {
-      button.classList.toggle("active", button.dataset.kind === kind);
-    });
-    $("localFields").hidden = kind !== "local";
-    $("sshFields").hidden = kind !== "ssh";
-  }
-
-  function openDrawer() {
-    $("drawer").classList.add("open");
-    $("scrim").hidden = false;
-  }
-
-  function closeDrawer() {
-    $("drawer").classList.remove("open");
-    $("scrim").hidden = true;
+    toast("Tab closed");
   }
 
   function toggleMenu(force) {
@@ -648,74 +530,16 @@
   }
 
   function bindUi() {
-    $("newButton").onclick = () => openNewSheet("local");
-    $("quickLocal").onclick = () => createSession({ kind: "local" });
-    $("emptyNew").onclick = () => openNewSheet("local");
-    $("drawerToggle").onclick = () => {
-      if ($("drawer").classList.contains("open")) closeDrawer();
-      else openDrawer();
-    };
-    $("scrim").onclick = closeDrawer;
-    $("sheetBackdrop").onclick = hideSheet;
-    $("closeSheet").onclick = hideSheet;
-    $("cancelSheet").onclick = hideSheet;
+    $("newButton").onclick = () => createSession({});
+    $("emptyNew").onclick = () => createSession({});
     $("menuBackdrop").onclick = () => toggleMenu(false);
     $("menuButton").onclick = () => toggleMenu();
-    $("fitButton").onclick = fitTerminal;
     $("reconnectButton").onclick = () => {
       if (state.activeId) connectSocket(state.activeId, true);
     };
     $("terminal").addEventListener("pointerdown", () => {
       if (!isMobile()) state.term.focus();
     });
-    document.querySelectorAll(".segmented button").forEach((button) => {
-      button.onclick = () => setKind(button.dataset.kind);
-    });
-    $("sessionForm").onsubmit = async (event) => {
-      event.preventDefault();
-      $("formError").hidden = true;
-      $("connectButton").disabled = true;
-      try {
-        if (state.kind === "local") {
-          await createSession({
-            kind: "local",
-            shell: $("shellSelect").value,
-            cwd: $("cwdInput").value.trim() || "~",
-          });
-          return;
-        }
-        const host = $("sshHost").value.trim();
-        const user = $("sshUser").value.trim();
-        const port = Number($("sshPort").value) || 22;
-        if (!host || !user) throw new Error("Host and user are required.");
-        const payload = {
-          kind: "ssh",
-          host,
-          user,
-          port,
-          identity_file: $("sshIdentity").value.trim(),
-          title: $("sshName").value.trim() || `${user}@${host}`,
-        };
-        if ($("saveProfile").checked) {
-          const saved = await api("/api/profiles", "POST", {
-            name: payload.title,
-            kind: "ssh",
-            host,
-            user,
-            port,
-            identity_file: payload.identity_file,
-          });
-          state.profiles.push(saved.profile);
-          payload.profile_id = saved.profile.id;
-        }
-        await createSession(payload);
-      } catch (error) {
-        $("formError").textContent = String(error.message || error);
-        $("formError").hidden = false;
-      } finally {
-        $("connectButton").disabled = false;
-      }
-    };
     $("menuPanel").querySelectorAll("[data-menu]").forEach((button) => {
       button.onclick = () => {
         const action = button.dataset.menu;
@@ -731,12 +555,14 @@
       };
     });
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !$("newSheet").hidden) {
-        hideSheet();
-      } else if (event.key === "Escape" && !$("menuPanel").hidden) {
+      if (event.key === "Escape" && !$("menuPanel").hidden) {
         toggleMenu(false);
-      } else if (event.key === "Escape" && $("drawer").classList.contains("open")) {
-        closeDrawer();
+      } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        createSession({});
+      } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "w") {
+        event.preventDefault();
+        if (state.activeId) closeSession(state.activeId);
       }
     });
     window.addEventListener("resize", scheduleFit);
@@ -747,28 +573,21 @@
     if (window.ResizeObserver) {
       new ResizeObserver(scheduleFit).observe($("terminalWrap"));
     }
-    let edgeStart = null;
-    $("stage").addEventListener("touchstart", (event) => {
-      if (!isMobile() || event.touches.length !== 1) return;
-      const x = event.touches[0].clientX;
-      edgeStart = x < 28 ? x : null;
-    }, { passive: true });
-    $("stage").addEventListener("touchend", (event) => {
-      if (edgeStart === null) return;
-      const x = event.changedTouches[0]?.clientX ?? edgeStart;
-      if (x - edgeStart > 55) openDrawer();
-      edgeStart = null;
-    }, { passive: true });
-    let drawerStart = null;
-    $("drawer").addEventListener("touchstart", (event) => {
-      if (event.touches.length === 1) drawerStart = event.touches[0].clientX;
-    }, { passive: true });
-    $("drawer").addEventListener("touchend", (event) => {
-      if (drawerStart === null) return;
-      const x = event.changedTouches[0]?.clientX ?? drawerStart;
-      if (drawerStart - x > 55) closeDrawer();
-      drawerStart = null;
-    }, { passive: true });
+  }
+
+  function watchTheme() {
+    window.addEventListener("message", (event) => {
+      if (event.source !== parent) return;
+      if (event.data?.type !== "orqella:context") return;
+      state.config = event.data.context?.config || state.config;
+      state.term.options.theme = buildTheme();
+      syncThemeColor();
+    });
+    document.addEventListener("orqella:theme-loaded", () => {
+      if (!state.term) return;
+      state.term.options.theme = buildTheme();
+      syncThemeColor();
+    });
   }
 
   window.orqella.ready(async (context) => {
@@ -777,9 +596,10 @@
     state.fontSize = clamp(Number(state.config.font_size) || 14, 10, 24);
     setupTerminal();
     bindUi();
+    watchTheme();
+    syncThemeColor();
     renderKeys();
     if (state.config.mobile_toolbar === false) $("keybar").hidden = true;
-    setKind("local");
     await loadPrefs();
     state.term.options.fontSize = state.fontSize;
     await refresh();

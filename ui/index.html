@@ -3,109 +3,42 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b1014">
+  <meta name="theme-color" content="#1e1e2e">
   <title>Terminal</title>
-  <link rel="stylesheet" href="vendor/xterm/xterm.css">
   <link rel="stylesheet" href="/assets/theme.css">
+  <link rel="stylesheet" href="/assets/module.css">
   <link rel="stylesheet" href="terminal.css">
 </head>
 <body>
   <div class="app" id="app">
     <header class="topbar">
-      <button class="icon-btn drawer-toggle" id="drawerToggle" type="button" aria-label="Sessions">☰</button>
-      <div class="identity">
-        <span class="status-dot" id="connectionDot" aria-hidden="true"></span>
-        <div class="identity-copy">
-          <h1 id="sessionTitle">Terminal</h1>
-          <p id="sessionMeta">Starting…</p>
-        </div>
-      </div>
+      <div class="tabs" id="tabs" role="tablist" aria-label="Terminal tabs"></div>
       <div class="top-actions">
-        <button class="icon-btn" id="newButton" type="button" aria-label="New session" title="New session">＋</button>
-        <button class="icon-btn" id="menuButton" type="button" aria-label="Terminal menu" title="Menu">⋯</button>
+        <button class="icon-button" id="newButton" type="button" aria-label="New local tab" title="New local tab">＋</button>
+        <button class="icon-button" id="menuButton" type="button" aria-label="Terminal menu" title="Menu">⋯</button>
       </div>
     </header>
 
-    <div class="workspace">
-      <div class="scrim" id="scrim" hidden></div>
-      <aside class="drawer" id="drawer">
-        <div class="drawer-head">
-          <div>
-            <p class="eyebrow">Sessions</p>
-            <h2>Workspace</h2>
-          </div>
-          <button class="soft-btn compact" id="quickLocal" type="button">＋ Local</button>
-        </div>
-        <div class="session-list" id="sessionList"></div>
-        <div class="drawer-section">
-          <div class="section-label"><span>Saved connections</span><span class="muted" id="profileCount"></span></div>
-          <div class="profile-list" id="profileList"></div>
-        </div>
-        <div class="drawer-foot">
-          <span class="platform-label" id="platformLabel">Checking host…</span>
-          <span class="muted" id="drawerHint">Sessions stay alive when this page closes.</span>
-        </div>
-      </aside>
-
-      <main class="stage" id="stage">
-        <div class="banner" id="banner" hidden>
-          <span id="bannerText">Connection lost</span>
-          <button class="soft-btn compact" id="reconnectButton" type="button">Reconnect</button>
-        </div>
-        <div class="terminal-wrap" id="terminalWrap">
-          <div id="terminal" aria-label="Terminal"></div>
-        </div>
-        <div class="empty-state" id="emptyState" hidden>
-          <div class="empty-glyph">▮</div>
-          <h2>No session selected</h2>
-          <p>Open a local shell or connect to a saved SSH host.</p>
-          <button class="primary-btn" id="emptyNew" type="button">New session</button>
-        </div>
-        <div class="keybar" id="keybar" aria-label="Terminal keys">
-          <div class="keys primary" id="keysPrimary"></div>
-          <div class="keys secondary" id="keysSecondary"></div>
-        </div>
-        <footer class="statusbar">
-          <span id="statusText">Starting terminal…</span>
-          <span class="status-right"><span id="sizeText">—</span><button class="text-btn" id="fitButton" type="button">fit</button></span>
-        </footer>
-      </main>
-    </div>
+    <main class="stage" id="stage">
+      <div class="banner" id="banner" hidden>
+        <span id="bannerText">Connection lost</span>
+        <button class="button ghost small-button" id="reconnectButton" type="button">Reconnect</button>
+      </div>
+      <div class="terminal-wrap" id="terminalWrap">
+        <div id="terminal" aria-label="Terminal"></div>
+      </div>
+      <div class="empty-state" id="emptyState" hidden>
+        <div class="empty-glyph" aria-hidden="true">▮</div>
+        <h2>No terminal tabs</h2>
+        <p>Open a local shell on this machine.</p>
+        <button class="button" id="emptyNew" type="button">New tab</button>
+      </div>
+      <div class="keybar" id="keybar" aria-label="Terminal keys">
+        <div class="keys primary" id="keysPrimary"></div>
+        <div class="keys secondary" id="keysSecondary"></div>
+      </div>
+    </main>
   </div>
-
-  <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
-  <section class="sheet" id="newSheet" hidden role="dialog" aria-modal="true" aria-labelledby="newSheetTitle">
-    <div class="sheet-head">
-      <div><p class="eyebrow">Connect</p><h2 id="newSheetTitle">New session</h2></div>
-      <button class="icon-btn" id="closeSheet" type="button" aria-label="Close">✕</button>
-    </div>
-    <div class="segmented" role="tablist" aria-label="Session type">
-      <button type="button" data-kind="local" class="active">Local shell</button>
-      <button type="button" data-kind="ssh">SSH host</button>
-    </div>
-    <form id="sessionForm" class="sheet-form">
-      <div id="localFields">
-        <label class="field-label">Shell<select class="field" id="shellSelect"></select></label>
-        <label class="field-label">Working directory<input class="field" id="cwdInput" placeholder="~" autocomplete="off" spellcheck="false"></label>
-      </div>
-      <div id="sshFields" hidden>
-        <div class="field-grid">
-          <label class="field-label">Name<input class="field" id="sshName" placeholder="studio" autocomplete="off"></label>
-          <label class="field-label">Host<input class="field" id="sshHost" placeholder="studio.local" autocomplete="off" spellcheck="false" required></label>
-          <label class="field-label">User<input class="field" id="sshUser" placeholder="eolu" autocomplete="username" spellcheck="false" required></label>
-          <label class="field-label">Port<input class="field" id="sshPort" type="number" min="1" max="65535" value="22"></label>
-          <label class="field-label full">Identity file <span class="muted">optional</span><input class="field" id="sshIdentity" placeholder="~/.ssh/id_ed25519" autocomplete="off" spellcheck="false"></label>
-        </div>
-        <label class="check-row"><input type="checkbox" id="saveProfile"> <span>Save as a connection</span></label>
-        <p class="hint">Uses your SSH config, agent, and known_hosts. Passwords are never stored by Orqella.</p>
-      </div>
-      <p class="form-error" id="formError" hidden></p>
-      <div class="sheet-actions">
-        <button class="soft-btn" id="cancelSheet" type="button">Cancel</button>
-        <button class="primary-btn" id="connectButton" type="submit">Open session</button>
-      </div>
-    </form>
-  </section>
 
   <div class="sheet-backdrop" id="menuBackdrop" hidden></div>
   <section class="menu-panel" id="menuPanel" hidden role="dialog" aria-modal="true" aria-label="Terminal menu">
@@ -116,7 +49,7 @@
     <button type="button" data-menu="font-up">Larger text</button>
     <button type="button" data-menu="fit">Fit to screen</button>
     <button type="button" data-menu="reconnect">Reconnect</button>
-    <button type="button" data-menu="close" class="danger">Close this session</button>
+    <button type="button" data-menu="close" class="danger">Close tab</button>
   </section>
 
   <div class="toast" id="toast" hidden></div>

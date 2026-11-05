@@ -1,12 +1,11 @@
 schema = 1
 id = "terminal"
 name = "Terminal"
-version = "0.1.0"
+version = "0.2.0"
 api_version = "1"
-description = "Persistent local shells and SSH sessions with a mobile-first terminal."
+description = "Persistent local shells with a mobile-first tabbed terminal."
 entry = "ui/index.html"
 overview = "ui/overview.html"
-settings = "ui/settings.html"
 overview_default = true
 page_default = true
 icon = "ui/icon.svg"
@@ -73,7 +72,7 @@ help = "Show Esc, Tab, arrows, Ctrl, and Paste above the keyboard."
 [[config.fields]]
 key = "confirm_close"
 type = "boolean"
-label = "Confirm before closing a session"
+label = "Confirm before closing a tab"
 default = true
 
 [[config.fields]]
@@ -81,4 +80,4 @@ key = "auto_start"
 type = "boolean"
 label = "Open a local shell automatically"
 default = true
-help = "Create a local session when the page opens and no session is running."
+help = "Create a local tab when the page opens and no session is running."

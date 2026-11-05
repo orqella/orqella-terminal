@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Orqella Terminal sidecar.
 
-The daemon never owns the terminal. This sidecar starts real shells or SSH
-clients under a PTY and keeps each session alive while a browser detaches, so a
-phone can lock, reconnect, and continue where it left off. It exposes a small
-JSON API plus an authenticated WebSocket at /ws/terminal.
+The daemon never owns the terminal. This sidecar starts local shells under a
+PTY and keeps each session alive while a browser detaches, so a phone can lock,
+reconnect, and continue where it left off. It exposes a small JSON API plus an
+authenticated WebSocket at /ws/terminal.
 
 Unix uses the standard-library pty module. Windows uses pywinpty/ConPTY when
 the optional dependency is installed.
@@ -17,7 +17,6 @@ import json
 import os
 import platform
 import queue
-import re
 import shutil
 import signal
 import struct
@@ -38,9 +37,6 @@ except json.JSONDecodeError:
 PLATFORM = platform.system()
 IS_WINDOWS = PLATFORM == "Windows"
 IS_MACOS = PLATFORM == "Darwin"
-MODULE_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = MODULE_ROOT / "data"
-PROFILES_FILE = DATA_DIR / "profiles.json"
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_SESSIONS = 16
 MAX_FRAME = 4 * 1024 * 1024
@@ -59,8 +55,6 @@ else:
 
 SESSIONS: dict[str, "TerminalSession"] = {}
 SESSIONS_LOCK = threading.Lock()
-PROFILES: list[dict] = []
-PROFILES_LOCK = threading.Lock()
 
 
 def now_iso() -> str:
@@ -139,117 +133,6 @@ def resolve_cwd(requested: str | None) -> str:
     if not os.path.isdir(value):
         raise ValueError(f"working directory does not exist: {value}")
     return value
-
-
-HOST_RE = re.compile(r"^[A-Za-z0-9_.:%\[\]-]+$")
-USER_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-
-
-def ssh_command(payload: dict) -> list[str]:
-    ssh = shutil.which("ssh")
-    if not ssh:
-        raise RuntimeError("OpenSSH client (`ssh`) is not installed or not on PATH")
-    host = str(payload.get("host") or "").strip()
-    user = str(payload.get("user") or "").strip()
-    if not host or not HOST_RE.fullmatch(host):
-        raise ValueError("SSH host is invalid")
-    if not user or not USER_RE.fullmatch(user):
-        raise ValueError("SSH user is invalid")
-    try:
-        port = int(payload.get("port") or 22)
-    except (TypeError, ValueError) as error:
-        raise ValueError("SSH port is invalid") from error
-    if port < 1 or port > 65535:
-        raise ValueError("SSH port is out of range")
-    command = [
-        ssh,
-        "-tt",
-        "-p",
-        str(port),
-        "-o",
-        "ServerAliveInterval=30",
-        "-o",
-        "ServerAliveCountMax=3",
-    ]
-    identity = str(payload.get("identity_file") or "").strip()
-    if identity:
-        identity = os.path.expanduser(identity)
-        if not os.path.isfile(identity):
-            raise ValueError(f"identity file does not exist: {identity}")
-        command += ["-i", identity, "-o", "IdentitiesOnly=yes"]
-    command.append(f"{user}@{host}")
-    return command
-
-
-def profile_from_payload(payload: dict) -> dict:
-    kind = str(payload.get("kind") or "local").strip().lower()
-    if kind not in ("local", "ssh"):
-        raise ValueError("profile kind must be local or ssh")
-    name = str(payload.get("name") or "").strip()
-    if not name:
-        name = "Local shell" if kind == "local" else f"{payload.get('user', '')}@{payload.get('host', '')}"
-    if len(name) > 80 or any(ord(c) < 32 for c in name):
-        raise ValueError("profile name is invalid")
-    profile = {
-        "id": str(payload.get("id") or uuid.uuid4().hex[:10]),
-        "name": name,
-        "kind": kind,
-        "host": str(payload.get("host") or "").strip(),
-        "user": str(payload.get("user") or "").strip(),
-        "port": int(payload.get("port") or 22),
-        "identity_file": str(payload.get("identity_file") or "").strip(),
-        "shell": str(payload.get("shell") or "").strip(),
-        "cwd": str(payload.get("cwd") or "").strip(),
-        "created_at": str(payload.get("created_at") or now_iso()),
-    }
-    if kind == "ssh":
-        if not profile["host"] or not HOST_RE.fullmatch(profile["host"]):
-            raise ValueError("SSH host is invalid")
-        if not profile["user"] or not USER_RE.fullmatch(profile["user"]):
-            raise ValueError("SSH user is invalid")
-        if not (1 <= profile["port"] <= 65535):
-            raise ValueError("SSH port is out of range")
-        if profile["identity_file"]:
-            expanded = os.path.expanduser(profile["identity_file"])
-            if not os.path.isfile(expanded):
-                raise ValueError(f"identity file does not exist: {expanded}")
-            profile["identity_file"] = expanded
-    else:
-        if profile["shell"]:
-            profile["shell"] = resolve_shell(profile["shell"])
-    return profile
-
-
-def load_profiles() -> list[dict]:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not PROFILES_FILE.exists():
-        return []
-    try:
-        raw = json.loads(PROFILES_FILE.read_text())
-        return [item for item in raw if isinstance(item, dict) and item.get("id")]
-    except (OSError, json.JSONDecodeError):
-        return []
-
-
-def save_profiles() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    temp = PROFILES_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(PROFILES, indent=2) + "\n")
-    os.replace(temp, PROFILES_FILE)
-
-
-def public_profile(profile: dict) -> dict:
-    return {
-        "id": profile.get("id"),
-        "name": profile.get("name"),
-        "kind": profile.get("kind"),
-        "host": profile.get("host"),
-        "user": profile.get("user"),
-        "port": profile.get("port"),
-        "identity_file": profile.get("identity_file"),
-        "shell": profile.get("shell"),
-        "cwd": profile.get("cwd"),
-    }
 
 
 class Client:
@@ -347,28 +230,13 @@ class WindowsPty:
 
 
 class TerminalSession:
-    def __init__(
-        self,
-        title: str,
-        command: list[str],
-        cwd: str,
-        cols: int,
-        rows: int,
-        kind: str,
-        profile_id: str = "",
-        host: str = "",
-        user: str = "",
-    ):
+    def __init__(self, title: str, command: list[str], cwd: str, cols: int, rows: int):
         self.id = uuid.uuid4().hex[:12]
         self.title = title
         self.command = command
         self.cwd = cwd
         self.cols = cols
         self.rows = rows
-        self.kind = kind
-        self.profile_id = profile_id
-        self.host = host
-        self.user = user
         self.created_at = now_iso()
         self.status = "running"
         self.exit_code: int | None = None
@@ -414,11 +282,7 @@ class TerminalSession:
             return {
                 "id": self.id,
                 "title": self.title,
-                "kind": self.kind,
                 "status": self.status,
-                "profile_id": self.profile_id,
-                "host": self.host,
-                "user": self.user,
                 "cwd": self.cwd,
                 "command": Path(self.command[0]).name,
                 "cols": self.cols,
@@ -442,11 +306,7 @@ class TerminalSession:
         return {
             "id": self.id,
             "title": self.title,
-            "kind": self.kind,
             "status": self.status,
-            "profile_id": self.profile_id,
-            "host": self.host,
-            "user": self.user,
             "cwd": self.cwd,
             "command": Path(self.command[0]).name,
             "cols": self.cols,
@@ -489,46 +349,17 @@ class TerminalSession:
             client.send("event", {"type": "exit", "session": self.id})
 
 
-def profile_payload(payload: dict) -> dict:
-    profile_id = str(payload.get("profile_id") or "").strip()
-    if profile_id:
-        with PROFILES_LOCK:
-            profile = next((item for item in PROFILES if item.get("id") == profile_id), None)
-        if not profile:
-            raise ValueError("profile not found")
-        merged = dict(profile)
-        merged.update({key: value for key, value in payload.items() if value not in (None, "")})
-        return merged
-    return payload
-
-
 def create_session(payload: dict) -> TerminalSession:
-    payload = profile_payload(payload or {})
-    kind = str(payload.get("kind") or "local").strip().lower()
-    if kind not in ("local", "ssh"):
-        raise ValueError("session kind must be local or ssh")
+    payload = payload or {}
     try:
         cols = max(2, min(400, int(payload.get("cols") or 80)))
         rows = max(2, min(200, int(payload.get("rows") or 24)))
     except (TypeError, ValueError):
         cols, rows = 80, 24
-    if kind == "ssh":
-        command = ssh_command(payload)
-        cwd = resolve_cwd(payload.get("cwd") or HOST_HOME)
-        title = str(payload.get("title") or "").strip()
-        if not title:
-            title = f"{payload.get('user')}@{payload.get('host')}"
-        host = str(payload.get("host") or "")
-        user = str(payload.get("user") or "")
-    else:
-        shell = resolve_shell(payload.get("shell"))
-        command = [shell]
-        cwd = resolve_cwd(payload.get("cwd"))
-        title = str(payload.get("title") or "").strip()
-        if not title:
-            title = Path(shell).stem
-        host = ""
-        user = ""
+    shell = resolve_shell(payload.get("shell"))
+    command = [shell]
+    cwd = resolve_cwd(payload.get("cwd"))
+    title = str(payload.get("title") or "").strip() or Path(shell).stem
     title = title[:80]
     with SESSIONS_LOCK:
         if len(SESSIONS) >= MAX_SESSIONS:
@@ -543,10 +374,6 @@ def create_session(payload: dict) -> TerminalSession:
             cwd=cwd,
             cols=cols,
             rows=rows,
-            kind=kind,
-            profile_id=str(payload.get("profile_id") or ""),
-            host=host,
-            user=user,
         )
         SESSIONS[session.id] = session
     return session
@@ -567,22 +394,17 @@ def status_payload() -> dict:
             (session.info() for session in SESSIONS.values()),
             key=lambda item: item["created_at"],
         )
-    with PROFILES_LOCK:
-        profiles = [public_profile(profile) for profile in PROFILES]
     return {
         "platform": PLATFORM,
         "capabilities": {
             "local_shell": True,
-            "ssh": shutil.which("ssh") is not None,
             "windows_pty": (not IS_WINDOWS) or PtyProcess is not None,
             "mobile_safe_area": True,
         },
         "shells": shell_candidates(),
         "default_shell": default_shell(),
         "sessions": sessions,
-        "profiles": profiles,
         "ws_token": WS_TOKEN,
-        "data_dir": str(DATA_DIR),
     }
 
 
@@ -657,10 +479,6 @@ class Handler(BaseHTTPRequestHandler):
                         key=lambda item: item["created_at"],
                     )
                 return self.send_json(200, {"sessions": rows})
-            if parsed.path == "/api/profiles":
-                with PROFILES_LOCK:
-                    rows = [public_profile(profile) for profile in PROFILES]
-                return self.send_json(200, {"profiles": rows})
             return self.send_json(404, {"error": "not found"})
         except Exception as error:  # noqa: BLE001 - API boundary
             return self.send_json(500, {"error": str(error)})
@@ -674,51 +492,11 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/sessions":
                 session = create_session(payload)
                 return self.send_json(201, {"session": session.info()})
-            if parsed.path == "/api/profiles":
-                with PROFILES_LOCK:
-                    profile = profile_from_payload(payload)
-                    PROFILES.append(profile)
-                    save_profiles()
-                return self.send_json(201, {"profile": public_profile(profile)})
-            if parsed.path.startswith("/api/sessions/") and parsed.path.endswith("/rename"):
-                session_id = parsed.path.split("/")[3]
-                title = str(payload.get("title") or "").strip()
-                if not title or len(title) > 80:
-                    raise ValueError("title is invalid")
-                with SESSIONS_LOCK:
-                    session = SESSIONS.get(session_id)
-                if not session:
-                    return self.send_json(404, {"error": "session not found"})
-                session.title = title
-                return self.send_json(200, {"session": session.info()})
             return self.send_json(404, {"error": "not found"})
         except ValueError as error:
             return self.send_json(400, {"error": str(error)})
         except Exception as error:  # noqa: BLE001 - API boundary
             return self.send_json(500, {"error": str(error)})
-
-    def do_PUT(self) -> None:
-        if not self.authorized():
-            return
-        parsed = urlparse(self.path)
-        try:
-            payload = self.read_json()
-            if parsed.path.startswith("/api/profiles/"):
-                profile_id = parsed.path.rsplit("/", 1)[-1]
-                with PROFILES_LOCK:
-                    existing = next((item for item in PROFILES if item.get("id") == profile_id), None)
-                    if not existing:
-                        return self.send_json(404, {"error": "profile not found"})
-                    update = dict(payload)
-                    update["id"] = profile_id
-                    update["created_at"] = existing.get("created_at")
-                    profile = profile_from_payload(update)
-                    PROFILES[PROFILES.index(existing)] = profile
-                    save_profiles()
-                return self.send_json(200, {"profile": public_profile(profile)})
-            return self.send_json(404, {"error": "not found"})
-        except ValueError as error:
-            return self.send_json(400, {"error": str(error)})
 
     def do_DELETE(self) -> None:
         if not self.authorized():
@@ -729,15 +507,6 @@ class Handler(BaseHTTPRequestHandler):
                 session_id = parsed.path.rsplit("/", 1)[-1]
                 if not close_session(session_id):
                     return self.send_json(404, {"error": "session not found"})
-                return self.send_json(200, {"ok": True})
-            if parsed.path.startswith("/api/profiles/"):
-                profile_id = parsed.path.rsplit("/", 1)[-1]
-                with PROFILES_LOCK:
-                    before = len(PROFILES)
-                    PROFILES[:] = [item for item in PROFILES if item.get("id") != profile_id]
-                    if len(PROFILES) == before:
-                        return self.send_json(404, {"error": "profile not found"})
-                    save_profiles()
                 return self.send_json(200, {"ok": True})
             return self.send_json(404, {"error": "not found"})
         except Exception as error:  # noqa: BLE001 - API boundary
@@ -862,9 +631,6 @@ class ParsedPath:
 
 
 def main() -> None:
-    global PROFILES
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    PROFILES = load_profiles()
     port = int(os.environ["ORQELLA_MODULE_PORT"])
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True

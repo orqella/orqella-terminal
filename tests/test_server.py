@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -15,66 +14,19 @@ class TerminalBackendTests(unittest.TestCase):
         self.assertTrue(shells)
         self.assertTrue(server.default_shell())
 
-    def test_rejects_unsafe_ssh_hosts(self) -> None:
-        for host in ("", "host with spaces", "host;rm -rf /", "-oProxyCommand=x"):
-            with self.subTest(host=host):
-                with self.assertRaises(ValueError):
-                    server.ssh_command({"host": host, "user": "eolu"})
+    def test_status_is_local_only(self) -> None:
+        status = server.status_payload()
+        self.assertNotIn("profiles", status)
+        self.assertNotIn("ssh", status["capabilities"])
+        self.assertTrue(status["capabilities"]["local_shell"])
+        self.assertGreaterEqual(len(status["ws_token"]), 32)
 
-    def test_builds_ssh_command_without_a_shell(self) -> None:
-        command = server.ssh_command(
-            {"host": "studio.local", "user": "eolu", "port": 2222}
-        ) if server.shutil.which("ssh") else None
-        if command:
-            self.assertIn("eolu@studio.local", command)
-            self.assertIn("2222", command)
-            self.assertEqual(command[-1], "eolu@studio.local")
-
-    def test_profiles_default_to_a_local_shell(self) -> None:
-        profile = server.profile_from_payload({"name": "Work", "kind": "local"})
-        self.assertEqual(profile["kind"], "local")
-        self.assertEqual(profile["name"], "Work")
-
-    def test_profile_rejects_bad_kind(self) -> None:
+    def test_rejects_missing_working_directory(self) -> None:
         with self.assertRaises(ValueError):
-            server.profile_from_payload({"kind": "telnet", "name": "bad"})
+            server.resolve_cwd("/definitely/not/a/directory")
 
-    def test_profile_rejects_unsafe_ssh_fields(self) -> None:
-        for payload in (
-            {"kind": "ssh", "name": "bad", "host": "host;rm", "user": "eolu"},
-            {"kind": "ssh", "name": "bad", "host": "studio", "user": "bad user"},
-            {"kind": "ssh", "name": "bad", "host": "studio", "user": "eolu", "port": 70000},
-        ):
-            with self.subTest(payload=payload):
-                with self.assertRaises(ValueError):
-                    server.profile_from_payload(payload)
-
-    def test_profile_requires_an_existing_identity_file(self) -> None:
-        with self.assertRaises(ValueError):
-            server.profile_from_payload({
-                "kind": "ssh",
-                "name": "studio",
-                "host": "studio.local",
-                "user": "eolu",
-                "identity_file": "/definitely/not/here",
-            })
-
-    def test_profile_rejects_control_characters_in_name(self) -> None:
-        with self.assertRaises(ValueError):
-            server.profile_from_payload({"kind": "local", "name": "bad\x00name"})
-
-    def test_ssh_command_uses_identity_and_identities_only(self) -> None:
-        if not server.shutil.which("ssh"):
-            self.skipTest("OpenSSH client is not installed")
-        with tempfile.NamedTemporaryFile() as identity:
-            command = server.ssh_command({
-                "host": "studio.local",
-                "user": "eolu",
-                "identity_file": identity.name,
-            })
-        self.assertIn("-i", command)
-        self.assertIn("IdentitiesOnly=yes", command)
-        self.assertEqual(command[-1], "eolu@studio.local")
+    def test_defaults_working_directory_to_home(self) -> None:
+        self.assertEqual(server.resolve_cwd(""), server.HOST_HOME)
 
     def test_windows_pty_explains_the_missing_dependency(self) -> None:
         had = hasattr(server, "PtyProcess")
