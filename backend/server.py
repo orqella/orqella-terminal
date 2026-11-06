@@ -480,6 +480,24 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("JSON object required")
         return value
 
+    def discard_body(self) -> None:
+        """Drain a request body the route does not need.
+
+        DELETE requests from the browser include an empty JSON object. If the
+        body stays in the HTTP/1.1 keep-alive stream, the next request line is
+        parsed as `{}POST` and the sidecar returns 501.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return
+        if length > MAX_FRAME:
+            self.close_connection = True
+            return
+        self.rfile.read(length)
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/ws/terminal":
@@ -521,6 +539,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         if not self.authorized():
             return
+        self.discard_body()
         parsed = urlparse(self.path)
         try:
             if parsed.path.startswith("/api/sessions/"):

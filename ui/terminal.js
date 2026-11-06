@@ -448,7 +448,7 @@
     const session = state.sessions.find((item) => item.id === sessionId);
     if (!session) return;
     try {
-      await api(`/api/sessions/${encodeURIComponent(sessionId)}`, "DELETE", {});
+      await api(`/api/sessions/${encodeURIComponent(sessionId)}`, "DELETE");
     } catch (error) {
       toast(String(error.message || error), true);
       return;

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import http.client
+import json
 import sys
+import threading
 import unittest
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
@@ -44,6 +48,47 @@ class TerminalBackendTests(unittest.TestCase):
 
     def test_websocket_token_is_not_empty(self) -> None:
         self.assertGreaterEqual(len(server.WS_TOKEN), 32)
+
+    @unittest.skipIf(server.IS_WINDOWS, "PTY integration test runs on POSIX hosts")
+    def test_delete_body_does_not_poison_keep_alive(self) -> None:
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        httpd.daemon_threads = True
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", httpd.server_address[1], timeout=10
+        )
+        session_ids: list[str] = []
+        try:
+            payload = json.dumps({"cols": 80, "rows": 24})
+            headers = {"Content-Type": "application/json"}
+
+            connection.request("POST", "/api/sessions", payload, headers)
+            response = connection.getresponse()
+            self.assertEqual(response.status, 201)
+            first = json.loads(response.read())["session"]
+            session_ids.append(first["id"])
+
+            # The browser used to send DELETE with an empty JSON body. The
+            # handler must drain it before reusing the keep-alive connection.
+            connection.request(
+                "DELETE", f"/api/sessions/{first['id']}", "{}", headers
+            )
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            response.read()
+
+            connection.request("POST", "/api/sessions", payload, headers)
+            response = connection.getresponse()
+            self.assertEqual(response.status, 201)
+            second = json.loads(response.read())["session"]
+            session_ids.append(second["id"])
+        finally:
+            connection.close()
+            for session_id in session_ids:
+                server.close_session(session_id)
+            httpd.shutdown()
+            httpd.server_close()
 
     def test_page_loads_vendored_xterm_stylesheet_first(self) -> None:
         root = Path(__file__).resolve().parents[1]
