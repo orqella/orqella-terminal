@@ -37,16 +37,26 @@ packages.
 
 Each tab is an independent local shell on the machine running the daemon. Tabs
 are not saved across a daemon restart, but they stay attached while the page is
-closed. Create a tab with **＋**; close it from the tab strip or the menu.
+closed. Create a tab with **＋**; close it from the tab strip or the menu. The
+page uses its own confirmation dialog because module iframes cannot use the
+browser's native `confirm()` modal.
 
 ## Mobile
 
 - The terminal page is fixed-height and avoids body scrolling.
-- The key bar sits above the on-screen keyboard and respects safe areas.
-- Tap the terminal to focus; use the ⌨ key to reopen the keyboard.
+- The key bar is mobile-only, sits above the on-screen keyboard, and respects
+  safe areas. It keeps Esc, Tab, Ctrl/Alt, arrows, and the keyboard toggle.
+- The ⌨ key toggles the on-screen keyboard; it does not only summon it.
+- The **⋯** palette adds navigation/function keys and actions such as Paste,
+  Copy, Select all, Clear, font sizing, Fit, Reconnect, and Close tab.
+- Long-press terminal text to select a word, then drag to extend the selection.
+  Use the selection bar to copy or dismiss it. **Select text** is also available
+  in the palette.
 - Use **Fit** after rotating, changing font size, or opening the keyboard.
 - Copy/paste uses the clipboard where the WebView allows it, with a prompt
   fallback.
+- The key bar is hidden on desktop; desktop keyboards and mouse selection use
+  the normal terminal behavior.
 
 ## Security
 

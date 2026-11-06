@@ -180,16 +180,36 @@ class UnixPty:
 
     def close(self) -> None:
         try:
-            os.killpg(os.getpgid(self.pid), signal.SIGHUP)
+            pgid = os.getpgid(self.pid)
         except OSError:
-            pass
+            pgid = None
         try:
             os.close(self.master)
         except OSError:
             pass
+        if pgid is None:
+            return
+        for sig, wait_seconds in ((signal.SIGHUP, 0.15), (signal.SIGTERM, 0.15), (signal.SIGKILL, 0.15)):
+            try:
+                os.killpg(pgid, sig)
+            except OSError:
+                try:
+                    os.waitpid(self.pid, os.WNOHANG)
+                except (ChildProcessError, OSError):
+                    pass
+                return
+            deadline = time.time() + wait_seconds
+            while time.time() < deadline:
+                try:
+                    pid, _ = os.waitpid(self.pid, os.WNOHANG)
+                except (ChildProcessError, OSError):
+                    return
+                if pid:
+                    return
+                time.sleep(0.01)
         try:
             os.waitpid(self.pid, os.WNOHANG)
-        except OSError:
+        except (ChildProcessError, OSError):
             pass
 
 

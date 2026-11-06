@@ -35,6 +35,15 @@
     wsToken: "",
     ctrl: false,
     alt: false,
+    keyboardOpen: false,
+    selectMode: false,
+    selectionUiVisible: false,
+    touchSelection: null,
+    pendingSelection: null,
+    longPressTimer: null,
+    touchStart: null,
+    touchMoved: false,
+    pendingCloseId: null,
   };
 
   function toast(message, bad = false) {
@@ -129,12 +138,21 @@
     state.term.open($("terminal"));
     state.term.onData((data) => sendInput(data));
     state.term.onResize(() => sendResize());
+    state.term.onSelectionChange(() => updateSelectionBar());
     state.term.onTitleChange((title) => {
       if (!state.activeId || !title) return;
       const session = state.sessions.find((item) => item.id === state.activeId);
       if (!session) return;
       session.title = title.trim().slice(0, 80) || session.title;
       renderTabs();
+    });
+    state.term.textarea?.addEventListener("focus", () => {
+      state.keyboardOpen = true;
+      renderKeys();
+    });
+    state.term.textarea?.addEventListener("blur", () => {
+      state.keyboardOpen = false;
+      renderKeys();
     });
     requestAnimationFrame(() => fitTerminal());
   }
@@ -197,7 +215,7 @@
     tabs.querySelectorAll("[data-close-tab]").forEach((button) => {
       button.onclick = (event) => {
         event.stopPropagation();
-        closeSession(button.dataset.closeTab);
+        requestCloseSession(button.dataset.closeTab);
       };
     });
     const active = tabs.querySelector(".tab.active");
@@ -236,6 +254,7 @@
   }
 
   function showEmpty() {
+    exitSelectionMode(true);
     $("emptyState").hidden = false;
     $("terminalWrap").style.visibility = "hidden";
     renderTabs();
@@ -292,6 +311,7 @@
     state.autoStarted = true;
     savePrefs();
     hideEmpty();
+    exitSelectionMode(true);
     state.term.reset();
     state.term.clear();
     hideBanner();
@@ -395,6 +415,7 @@
 
   function sendInput(data) {
     if (!data) return;
+    if (state.selectMode) exitSelectionMode(true);
     sendJson({ type: "input", data });
   }
 
@@ -403,11 +424,29 @@
     sendJson({ type: "resize", cols: state.term.cols, rows: state.term.rows });
   }
 
+  function requestCloseSession(sessionId) {
+    const session = state.sessions.find((item) => item.id === sessionId);
+    if (!session) return;
+    if (state.config.confirm_close === false || session.status === "exited") {
+      closeSession(sessionId);
+      return;
+    }
+    state.pendingCloseId = sessionId;
+    $("closeText").textContent = `End ${session.title || "this tab"} and its shell?`;
+    $("closeBackdrop").hidden = false;
+    $("closeDialog").hidden = false;
+    setTimeout(() => $("closeCancel").focus(), 0);
+  }
+
+  function hideCloseDialog() {
+    state.pendingCloseId = null;
+    $("closeBackdrop").hidden = true;
+    $("closeDialog").hidden = true;
+  }
+
   async function closeSession(sessionId) {
     const session = state.sessions.find((item) => item.id === sessionId);
     if (!session) return;
-    if (state.config.confirm_close !== false && session.status !== "exited"
-      && !confirm(`Close ${session.title || "this tab"}?`)) return;
     try {
       await api(`/api/sessions/${encodeURIComponent(sessionId)}`, "DELETE", {});
     } catch (error) {
@@ -433,6 +472,273 @@
     const show = force ?? $("menuPanel").hidden;
     $("menuPanel").hidden = !show;
     $("menuBackdrop").hidden = !show;
+    $("menuButton").setAttribute("aria-expanded", String(show));
+    if (show) {
+      renderPalette();
+      setTimeout(() => $("menuClose").focus(), 0);
+    }
+  }
+
+  function toggleKeyboard() {
+    if (!state.term) return;
+    if (state.keyboardOpen) {
+      state.term.blur();
+    } else {
+      state.term.focus();
+    }
+    setTimeout(renderKeys, 40);
+  }
+
+  function updateSelectionBar() {
+    const bar = $("selectionBar");
+    if (!state.selectMode || !state.selectionUiVisible) {
+      bar.hidden = true;
+      return;
+    }
+    const text = state.pendingSelection ? pendingSelectionText() : (state.term?.getSelection() || "");
+    bar.hidden = false;
+    $("selectionInfo").textContent = text
+      ? `${text.length} character${text.length === 1 ? "" : "s"} selected`
+      : "Drag to select";
+    $("selectionCopy").disabled = text.length === 0;
+  }
+
+  function pendingSelectionText() {
+    const pending = state.pendingSelection;
+    if (!pending || !state.term) return "";
+    if (pending.kind === "lines") {
+      const rows = [];
+      for (let row = pending.first; row <= pending.last; row += 1) {
+        rows.push(state.term.buffer.active.getLine(row)?.translateToString(true) || "");
+      }
+      return rows.join("\n");
+    }
+    const line = state.term.buffer.active.getLine(pending.row)?.translateToString(true) || "";
+    return line.slice(pending.start, pending.start + pending.length);
+  }
+
+  function applyPendingSelection() {
+    const pending = state.pendingSelection;
+    if (!pending) return;
+    state.pendingSelection = null;
+    if (pending.kind === "lines") {
+      state.term.selectLines(pending.first, pending.last);
+    } else if (pending.length > 0) {
+      state.term.select(pending.start, pending.row, pending.length);
+    } else {
+      state.term.clearSelection();
+    }
+    updateSelectionBar();
+  }
+
+  function showSelectionUi() {
+    if (!state.term) return;
+    state.selectionUiVisible = true;
+    $("app").classList.add("selecting");
+    $("terminal").classList.add("selecting");
+    updateSelectionBar();
+  }
+
+  function enterSelectionMode() {
+    if (!state.term) return;
+    state.selectMode = true;
+    showSelectionUi();
+  }
+
+  function exitSelectionMode(clearSelection = true) {
+    state.selectMode = false;
+    state.selectionUiVisible = false;
+    state.touchSelection = null;
+    state.pendingSelection = null;
+    clearTimeout(state.longPressTimer);
+    state.longPressTimer = null;
+    $("app").classList.remove("selecting");
+    $("terminal").classList.remove("selecting");
+    if (clearSelection) state.term?.clearSelection();
+    $("selectionBar").hidden = true;
+  }
+
+  function touchPoint(event) {
+    const touch = event.touches?.[0] || event.changedTouches?.[0];
+    return touch ? { x: touch.clientX, y: touch.clientY } : null;
+  }
+
+  function cellFromPoint(x, y) {
+    const screen = $("terminal")?.querySelector(".xterm-screen");
+    if (!screen || !state.term) return null;
+    const rect = screen.getBoundingClientRect();
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return null;
+    const cellWidth = rect.width / state.term.cols;
+    const cellHeight = rect.height / state.term.rows;
+    return {
+      col: clamp(Math.floor((x - rect.left) / cellWidth), 0, state.term.cols - 1),
+      row: state.term.buffer.active.viewportY
+        + clamp(Math.floor((y - rect.top) / cellHeight), 0, state.term.rows - 1),
+    };
+  }
+
+  function wordAtCell(cell) {
+    const line = state.term?.buffer.active.getLine(cell.row);
+    if (!line) return null;
+    const text = line.translateToString(true);
+    if (!text) return null;
+    const col = clamp(cell.col, 0, text.length - 1);
+    const separators = String(state.term.options.wordSeparator || " ()[]{}',\"`");
+    const isWord = (char) => Boolean(char) && !/\s/.test(char) && !separators.includes(char);
+    let start = col;
+    let end = col;
+    if (isWord(text[col])) {
+      while (start > 0 && isWord(text[start - 1])) start -= 1;
+      while (end + 1 < text.length && isWord(text[end + 1])) end += 1;
+    } else {
+      while (start > 0 && !isWord(text[start - 1])) start -= 1;
+      while (end + 1 < text.length && !isWord(text[end + 1])) end += 1;
+    }
+    return { start, end: end + 1, row: cell.row };
+  }
+
+  function applySelection(start, row, length) {
+    if (length <= 0) {
+      state.term.clearSelection();
+    } else {
+      state.term.select(start, row, length);
+    }
+    updateSelectionBar();
+  }
+
+  function selectLinesBetween(firstRow, lastRow) {
+    state.term.selectLines(Math.min(firstRow, lastRow), Math.max(firstRow, lastRow));
+    updateSelectionBar();
+  }
+
+  function applyTouchSelection(cell) {
+    const selection = state.touchSelection;
+    if (!selection || !cell) return;
+    if (selection.mode === "word" && selection.startWord) {
+      const current = wordAtCell(cell);
+      if (!current) return;
+      if (current.row === selection.startWord.row) {
+        const start = Math.min(selection.startWord.start, current.start);
+        const end = Math.max(selection.startWord.end, current.end);
+        state.pendingSelection = { kind: "range", start, row: current.row, length: end - start };
+      } else {
+        state.pendingSelection = {
+          kind: "lines",
+          first: Math.min(selection.startWord.row, current.row),
+          last: Math.max(selection.startWord.row, current.row),
+        };
+      }
+      updateSelectionBar();
+      return;
+    }
+    if (cell.row === selection.startCell.row) {
+      const start = Math.min(selection.startCell.col, cell.col);
+      const end = Math.max(selection.startCell.col, cell.col);
+      state.pendingSelection = end > start
+        ? { kind: "range", start, row: cell.row, length: end - start }
+        : null;
+    } else {
+      state.pendingSelection = {
+        kind: "lines",
+        first: Math.min(selection.startCell.row, cell.row),
+        last: Math.max(selection.startCell.row, cell.row),
+      };
+    }
+    updateSelectionBar();
+  }
+
+  function startWordSelection(cell) {
+    const word = wordAtCell(cell);
+    state.touchSelection = { startCell: cell, startWord: word, mode: "word" };
+    if (word) applySelection(word.start, word.row, word.end - word.start);
+    updateSelectionBar();
+  }
+
+  function onTerminalTouchStart(event) {
+    if (!state.term || event.touches.length !== 1) return;
+    const point = touchPoint(event);
+    if (!point) return;
+    state.touchStart = point;
+    state.touchMoved = false;
+    clearTimeout(state.longPressTimer);
+    state.longPressTimer = null;
+    if (state.selectMode) {
+      const cell = cellFromPoint(point.x, point.y);
+      if (cell) {
+        state.pendingSelection = null;
+        state.touchSelection = { startCell: cell, startWord: null, mode: "char" };
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    state.longPressTimer = setTimeout(() => {
+      state.longPressTimer = null;
+      if (state.touchMoved) return;
+      const cell = cellFromPoint(point.x, point.y);
+      if (!cell) return;
+      if (isMobile() && navigator.vibrate) navigator.vibrate(10);
+      enterSelectionMode();
+      state.pendingSelection = null;
+      state.touchSelection = { startCell: cell, startWord: wordAtCell(cell), mode: "word" };
+      updateSelectionBar();
+    }, 480);
+  }
+
+  function onTerminalTouchMove(event) {
+    const point = touchPoint(event);
+    if (!point) return;
+    if (state.touchSelection) {
+      const cell = cellFromPoint(point.x, point.y);
+      if (cell) applyTouchSelection(cell);
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (!state.touchStart) return;
+    if (Math.abs(point.x - state.touchStart.x) > 8 || Math.abs(point.y - state.touchStart.y) > 8) {
+      state.touchMoved = true;
+      clearTimeout(state.longPressTimer);
+      state.longPressTimer = null;
+    }
+  }
+
+  function onTerminalTouchEnd(event) {
+    clearTimeout(state.longPressTimer);
+    state.longPressTimer = null;
+    if (state.touchSelection) {
+      const selection = state.touchSelection;
+      if (state.pendingSelection) {
+        applyPendingSelection();
+      } else if (!state.term.hasSelection() && selection.mode === "word" && selection.startWord) {
+        state.pendingSelection = {
+          kind: "range",
+          start: selection.startWord.start,
+          row: selection.startWord.row,
+          length: selection.startWord.end - selection.startWord.start,
+        };
+        applyPendingSelection();
+      }
+      state.touchSelection = null;
+      state.pendingSelection = null;
+      if (state.selectMode) showSelectionUi();
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    state.touchStart = null;
+  }
+
+  function onTerminalContextMenu(event) {
+    if (!isMobile()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (state.selectMode) return;
+    const cell = cellFromPoint(event.clientX, event.clientY);
+    if (!cell) return;
+    state.selectMode = true;
+    startWordSelection(cell);
+    showSelectionUi();
+    state.touchSelection = null;
   }
 
   async function pasteClipboard() {
@@ -457,6 +763,13 @@
     } catch (_) {
       prompt("Copy terminal selection:", selection);
     }
+  }
+
+  function selectAllText() {
+    enterSelectionMode();
+    state.pendingSelection = null;
+    state.term.selectAll();
+    updateSelectionBar();
   }
 
   function setFont(delta) {
@@ -486,47 +799,111 @@
   }
 
   const KEY_DEFS = [
+    { label: "Esc", data: "\x1b", group: "mod" },
+    { label: "Tab", data: "\t", group: "mod" },
+    { label: "Ctrl", toggle: "ctrl", group: "mod" },
+    { label: "Alt", toggle: "alt", group: "mod" },
+    { label: "←", data: "\x1b[D", icon: true, group: "arrows" },
+    { label: "↑", data: "\x1b[A", icon: true, group: "arrows" },
+    { label: "↓", data: "\x1b[B", icon: true, group: "arrows" },
+    { label: "→", data: "\x1b[C", icon: true, group: "arrows" },
+    { label: "⌨", action: "keyboard", icon: true, group: "system", keyboard: true },
+  ];
+
+  const PALETTE_KEYS = [
+    { label: "←", data: "\x1b[D" },
+    { label: "↑", data: "\x1b[A" },
+    { label: "↓", data: "\x1b[B" },
+    { label: "→", data: "\x1b[C" },
+    { label: "Home", data: "\x1b[H" },
+    { label: "End", data: "\x1b[F" },
+    { label: "PgUp", data: "\x1b[5~" },
+    { label: "PgDn", data: "\x1b[6~" },
     { label: "Esc", data: "\x1b" },
     { label: "Tab", data: "\t" },
-    { label: "Ctrl", toggle: "ctrl" },
-    { label: "Alt", toggle: "alt" },
-    { label: "←", data: "\x1b[D", icon: true },
-    { label: "↑", data: "\x1b[A", icon: true },
-    { label: "↓", data: "\x1b[B", icon: true },
-    { label: "→", data: "\x1b[C", icon: true },
-    { label: "Paste", action: "paste", wide: true, secondary: true },
-    { label: "⌨", action: "focus", icon: true, secondary: true },
-    { label: "/", data: "/", secondary: true },
-    { label: "-", data: "-", secondary: true },
-    { label: "|", data: "|", secondary: true },
-    { label: "~", data: "~", secondary: true },
-    { label: "C", letter: "c", secondary: true },
-    { label: "D", letter: "d", secondary: true },
-    { label: "Z", letter: "z", secondary: true },
-    { label: "L", letter: "l", secondary: true },
+    { label: "Enter", data: "\r" },
+    { label: "Space", data: " " },
+    { label: "⌫", data: "\x7f" },
+    { label: "Del", data: "\x1b[3~" },
+    { label: "|", data: "|" },
+    { label: "~", data: "~" },
+    { label: "/", data: "/" },
+    { label: "-", data: "-" },
+    { label: "_", data: "_" },
+    { label: "=", data: "=" },
+    { label: "+", data: "+" },
+    { label: "*", data: "*" },
+    { label: "&", data: "&" },
+    { label: ";", data: ";" },
+    { label: ":", data: ":" },
+    { label: "'", data: "'" },
+    { label: "\"", data: "\"" },
+    { label: "(", data: "(" },
+    { label: ")", data: ")" },
+    { label: "[", data: "[" },
+    { label: "]", data: "]" },
+    { label: "{", data: "{" },
+    { label: "}", data: "}" },
+    { label: "$", data: "$" },
+    { label: "#", data: "#" },
+    { label: "!", data: "!" },
+    { label: "?", data: "?" },
+    { label: "@", data: "@" },
+    { label: "%", data: "%" },
+    { label: "^", data: "^" },
+    { label: "\\", data: "\\" },
+    { label: "`", data: "`" },
   ];
 
   function renderKeys() {
-    const render = (bar, defs) => {
-      bar.innerHTML = defs.map((def) => {
-        const index = KEY_DEFS.indexOf(def);
-        const active = (def.toggle === "ctrl" && state.ctrl) || (def.toggle === "alt" && state.alt);
-        return `<button class="key ${def.wide ? "wide" : ""} ${def.icon ? "icon" : ""} ${active ? "active" : ""}" type="button" data-key="${index}">${esc(def.label)}</button>`;
-      }).join("");
-      bar.querySelectorAll("[data-key]").forEach((button) => {
-        button.onclick = () => {
-          const def = KEY_DEFS[Number(button.dataset.key)];
-          if (def.toggle === "ctrl") { state.ctrl = !state.ctrl; renderKeys(); return; }
-          if (def.toggle === "alt") { state.alt = !state.alt; renderKeys(); return; }
-          if (isMobile() && navigator.vibrate) navigator.vibrate(6);
-          if (def.action === "paste") { pasteClipboard(); return; }
-          if (def.action === "focus") { state.term.focus(); return; }
-          keySequence(def);
-        };
-      });
-    };
-    render($("keysPrimary"), KEY_DEFS.filter((def) => !def.secondary));
-    render($("keysSecondary"), KEY_DEFS.filter((def) => def.secondary));
+    const bar = $("keysPrimary");
+    let html = "";
+    let group = null;
+    KEY_DEFS.forEach((def) => {
+      if (def.group !== group) {
+        if (group) html += "</div>";
+        html += `<div class="key-group ${def.group}">`;
+        group = def.group;
+      }
+      const index = KEY_DEFS.indexOf(def);
+      const active = (def.toggle === "ctrl" && state.ctrl)
+        || (def.toggle === "alt" && state.alt)
+        || (def.keyboard && state.keyboardOpen);
+      const classes = ["key", def.icon ? "icon" : "", def.keyboard ? "keyboard" : "", active ? "active" : ""]
+        .filter(Boolean)
+        .join(" ");
+      const pressed = def.toggle || def.keyboard ? ` aria-pressed="${active}"` : "";
+      html += `<button class="${classes}" type="button" data-key="${index}"${pressed}>${esc(def.label)}</button>`;
+    });
+    if (group) html += "</div>";
+    bar.innerHTML = html;
+    bar.querySelectorAll("[data-key]").forEach((button) => {
+      button.addEventListener("pointerdown", (event) => event.preventDefault());
+      button.onclick = () => {
+        const def = KEY_DEFS[Number(button.dataset.key)];
+        if (def.toggle === "ctrl") { state.ctrl = !state.ctrl; renderKeys(); return; }
+        if (def.toggle === "alt") { state.alt = !state.alt; renderKeys(); return; }
+        if (def.action === "keyboard") { toggleKeyboard(); return; }
+        if (isMobile() && navigator.vibrate) navigator.vibrate(6);
+        keySequence(def);
+      };
+    });
+  }
+
+  function renderPalette() {
+    const palette = $("keyPalette");
+    palette.innerHTML = PALETTE_KEYS.map((def, index) =>
+      `<button class="palette-key" type="button" data-palette="${index}" aria-label="${esc(def.label)}">${esc(def.label)}</button>`
+    ).join("");
+    palette.querySelectorAll("[data-palette]").forEach((button) => {
+      button.onclick = () => {
+        const def = PALETTE_KEYS[Number(button.dataset.palette)];
+        if (isMobile() && navigator.vibrate) navigator.vibrate(6);
+        sendInput(def.data);
+        toggleMenu(false);
+        if (isMobile()) state.term.focus();
+      };
+    });
   }
 
   function bindUi() {
@@ -534,35 +911,66 @@
     $("emptyNew").onclick = () => createSession({});
     $("menuBackdrop").onclick = () => toggleMenu(false);
     $("menuButton").onclick = () => toggleMenu();
+    $("menuClose").onclick = () => toggleMenu(false);
+    $("closeBackdrop").onclick = hideCloseDialog;
+    $("closeCancel").onclick = hideCloseDialog;
+    $("closeConfirm").onclick = () => {
+      const sessionId = state.pendingCloseId;
+      hideCloseDialog();
+      if (sessionId) closeSession(sessionId);
+    };
+    $("selectionCopy").onclick = copySelection;
+    $("selectionAll").onclick = selectAllText;
+    $("selectionDone").onclick = () => exitSelectionMode(true);
     $("reconnectButton").onclick = () => {
       if (state.activeId) connectSocket(state.activeId, true);
     };
-    $("terminal").addEventListener("pointerdown", () => {
+    const terminalEl = $("terminal");
+    terminalEl.addEventListener("pointerdown", () => {
       if (!isMobile()) state.term.focus();
     });
+    terminalEl.addEventListener("touchstart", onTerminalTouchStart, { passive: false, capture: true });
+    terminalEl.addEventListener("touchmove", onTerminalTouchMove, { passive: false, capture: true });
+    terminalEl.addEventListener("touchend", onTerminalTouchEnd, { passive: false, capture: true });
+    terminalEl.addEventListener("touchcancel", onTerminalTouchEnd, { passive: false, capture: true });
+    terminalEl.addEventListener("contextmenu", onTerminalContextMenu, { capture: true });
     $("menuPanel").querySelectorAll("[data-menu]").forEach((button) => {
       button.onclick = () => {
         const action = button.dataset.menu;
         toggleMenu(false);
         if (action === "paste") pasteClipboard();
         else if (action === "copy") copySelection();
+        else if (action === "select") {
+          enterSelectionMode();
+          toast("Drag to select terminal text");
+        } else if (action === "select-all") selectAllText();
+        else if (action === "keyboard") toggleKeyboard();
         else if (action === "clear") state.term.clear();
         else if (action === "font-down") setFont(-1);
         else if (action === "font-up") setFont(1);
         else if (action === "fit") fitTerminal();
         else if (action === "reconnect") state.activeId && connectSocket(state.activeId, true);
-        else if (action === "close") state.activeId && closeSession(state.activeId);
+        else if (action === "close") state.activeId && requestCloseSession(state.activeId);
       };
     });
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !$("menuPanel").hidden) {
-        toggleMenu(false);
+      if (event.key === "Escape") {
+        if (!$("closeDialog").hidden) {
+          event.preventDefault();
+          hideCloseDialog();
+        } else if (!$("menuPanel").hidden) {
+          event.preventDefault();
+          toggleMenu(false);
+        } else if (state.selectMode) {
+          event.preventDefault();
+          exitSelectionMode(true);
+        }
       } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "t") {
         event.preventDefault();
         createSession({});
       } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "w") {
         event.preventDefault();
-        if (state.activeId) closeSession(state.activeId);
+        if (state.activeId) requestCloseSession(state.activeId);
       }
     });
     window.addEventListener("resize", scheduleFit);

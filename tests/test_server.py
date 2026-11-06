@@ -52,6 +52,20 @@ class TerminalBackendTests(unittest.TestCase):
         self.assertIn('href="vendor/xterm/xterm.css"', page)
         self.assertLess(page.index("vendor/xterm/xterm.css"), page.index("terminal.css"))
 
+    def test_close_uses_an_in_module_dialog(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "ui" / "index.html").read_text(encoding="utf-8")
+        script = (root / "ui" / "terminal.js").read_text(encoding="utf-8")
+        self.assertIn('id="closeDialog"', page)
+        self.assertNotIn("confirm(", script)
+
+    def test_single_keybar_and_mobile_palette(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        page = (root / "ui" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="keyPalette"', page)
+        self.assertIn('id="selectionBar"', page)
+        self.assertNotIn('id="keysSecondary"', page)
+
 
 if __name__ == "__main__":
     unittest.main()
