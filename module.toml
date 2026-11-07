@@ -1,7 +1,7 @@
 schema = 1
 id = "terminal"
 name = "Terminal"
-version = "0.3.1"
+version = "0.3.2"
 api_version = "1"
 description = "Persistent local shells with a mobile-first tabbed terminal."
 entry = "ui/index.html"
@@ -24,6 +24,8 @@ health_path = "/health"
 ready_timeout_ms = 15000
 sandbox = false
 platforms = ["linux", "macos", "windows"]
+python = ">=3.9"
+requirements = "backend/requirements.txt"
 
 [[config.fields]]
 key = "default_shell"

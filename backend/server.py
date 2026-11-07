@@ -217,7 +217,7 @@ class WindowsPty:
     def __init__(self, command: list[str], cwd: str, env: dict[str, str], cols: int, rows: int):
         if PtyProcess is None:
             raise RuntimeError(
-                "Windows terminal support needs pywinpty. Run: python -m pip install pywinpty"
+                "Windows terminal support needs pywinpty. Restart the module so Orqella can install backend/requirements.txt in its managed environment."
             )
         self.process = PtyProcess.spawn(
             command,

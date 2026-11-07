@@ -23,15 +23,11 @@ orqella module install ~/Projects/orqella/modules/terminal
 Then open **Terminal** from the dashboard sidebar, or enable it in
 Settings → Terminal.
 
-The sidecar needs Python 3 on the host. On Windows, install the optional PTY
-dependency once:
-
-```powershell
-python -m pip install pywinpty
-```
-
-Linux and macOS use the standard library `pty` module and need no extra
-packages.
+The sidecar declares Python 3.9+ and `backend/requirements.txt`. Orqella finds
+a compatible interpreter, creates the module's managed virtual environment on
+first start, and installs `pywinpty` there on Windows. Linux and macOS use the
+standard-library `pty` module and need no extra packages. If Python is missing,
+the module shows a setup error with an install hint instead of failing silently.
 
 ## Tabs
 
