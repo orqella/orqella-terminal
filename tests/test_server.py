@@ -112,5 +112,112 @@ class TerminalBackendTests(unittest.TestCase):
         self.assertNotIn('id="keysSecondary"', page)
 
 
+class TerminalCoreTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        with server.SESSIONS_LOCK:
+            sessions = list(server.SESSIONS.values())
+        for session in sessions:
+            server.close_session(session.id)
+
+    def test_strip_secrets_replaces_host_environment(self) -> None:
+        old_home = server.HOST_HOME
+        server.HOST_HOME = "/tmp/orqella-home"
+        try:
+            clean = server.strip_secrets(
+                {
+                    "ORQELLA_MODULE_TOKEN": "secret",
+                    "ORQELLA_MODULE_CONFIG": "{}",
+                    "HOME": "/root",
+                    "TERM": "dumb",
+                    "PATH": "/bin",
+                }
+            )
+        finally:
+            server.HOST_HOME = old_home
+        self.assertNotIn("ORQELLA_MODULE_TOKEN", clean)
+        self.assertNotIn("ORQELLA_MODULE_CONFIG", clean)
+        self.assertEqual(clean["HOME"], "/tmp/orqella-home")
+        self.assertEqual(clean["TERM"], "xterm-256color")
+        self.assertEqual(clean["COLORTERM"], "truecolor")
+        self.assertEqual(clean["TERM_PROGRAM"], "Orqella")
+        self.assertEqual(clean["PATH"], "/bin")
+
+    def test_buffer_limit_is_clamped(self) -> None:
+        old = dict(server.CONFIG)
+        try:
+            for value, expected in [
+                ("1", 64 * 1024),
+                ("512", 512 * 1024),
+                ("999999", 4096 * 1024),
+                ("not-a-number", 512 * 1024),
+            ]:
+                server.CONFIG["scrollback_kb"] = value
+                self.assertEqual(server.buffer_limit(), expected, value)
+        finally:
+            server.CONFIG.clear()
+            server.CONFIG.update(old)
+
+    def test_shell_resolution_rejects_missing_binaries(self) -> None:
+        with self.assertRaises(ValueError):
+            server.resolve_shell("/definitely/not/a/shell")
+        with self.assertRaises(ValueError):
+            server.resolve_shell(" ")
+        self.assertTrue(server.resolve_shell(None))
+
+    @unittest.skipIf(server.IS_WINDOWS, "POSIX shell test")
+    def test_session_lifecycle_and_status_payload(self) -> None:
+        session = server.create_session(
+            {"shell": "/bin/sh", "cwd": "/", "cols": 120, "rows": 40, "title": "test"}
+        )
+        try:
+            info = session.info()
+            self.assertEqual(info["title"], "test")
+            self.assertEqual(info["cols"], 120)
+            self.assertEqual(info["rows"], 40)
+            self.assertEqual(info["status"], "running")
+            self.assertIn(session.id, [item["id"] for item in server.status_payload()["sessions"]])
+            session.write(b"printf 'orqella-test\\n'\n")
+            deadline = __import__("time").time() + 5
+            while __import__("time").time() < deadline:
+                if b"orqella-test" in session.buffer:
+                    break
+                __import__("time").sleep(0.05)
+            self.assertIn(b"orqella-test", session.buffer)
+            session.resize(1, 999)
+            self.assertEqual(session.cols, 2)
+            self.assertEqual(session.rows, 200)
+        finally:
+            self.assertTrue(server.close_session(session.id))
+        self.assertFalse(server.close_session(session.id))
+
+    @unittest.skipIf(server.IS_WINDOWS, "POSIX shell test")
+    def test_session_limit_is_enforced_and_exited_slots_are_reused(self) -> None:
+        old_limit = server.MAX_SESSIONS
+        server.MAX_SESSIONS = 1
+        try:
+            first = server.create_session({"shell": "/bin/sh", "cwd": "/"})
+            with self.assertRaises(ValueError):
+                server.create_session({"shell": "/bin/sh", "cwd": "/"})
+            first.close()
+            second = server.create_session({"shell": "/bin/sh", "cwd": "/"})
+            self.assertNotEqual(first.id, second.id)
+        finally:
+            server.MAX_SESSIONS = old_limit
+
+    def test_websocket_handshake_and_frame_encoding(self) -> None:
+        # RFC 6455 example key from the specification.
+        self.assertEqual(
+            server.ws_accept("dGhlIHNhbXBsZSBub25jZQ=="),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=",
+        )
+        short = server.ws_frame(1, b"hello")
+        self.assertEqual(short[:2], bytes([0x81, 5]))
+        medium = server.ws_frame(2, b"x" * 126)
+        self.assertEqual(medium[:4], bytes([0x82, 126, 0, 126]))
+        large = server.ws_frame(2, b"x" * 65536)
+        self.assertEqual(large[:2], bytes([0x82, 127]))
+        self.assertEqual(int.from_bytes(large[2:10], "big"), 65536)
+
+
 if __name__ == "__main__":
     unittest.main()
