@@ -17,11 +17,11 @@ around xterm.js.
 ## Install
 
 ```bash
-orqella module install ~/Projects/orqella/modules/terminal
+orqella module install https://github.com/orqella/orqella-terminal
 ```
 
 Then open **Terminal** from the dashboard sidebar, or enable it in
-Settings → Terminal.
+**Settings → Modules**, select **Terminal**.
 
 The sidecar declares Python 3.9+ and `backend/requirements.txt`. Orqella finds
 a compatible interpreter, creates the module's managed virtual environment on
