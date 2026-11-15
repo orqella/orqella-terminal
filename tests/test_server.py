@@ -51,6 +51,8 @@ class TerminalBackendTests(unittest.TestCase):
 
     @unittest.skipIf(server.IS_WINDOWS, "PTY integration test runs on POSIX hosts")
     def test_delete_body_does_not_poison_keep_alive(self) -> None:
+        old_token = server.TOKEN
+        server.TOKEN = "test-token"
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         httpd.daemon_threads = True
         thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -61,7 +63,10 @@ class TerminalBackendTests(unittest.TestCase):
         session_ids: list[str] = []
         try:
             payload = json.dumps({"cols": 80, "rows": 24})
-            headers = {"Content-Type": "application/json"}
+            headers = {
+                "Content-Type": "application/json",
+                "X-Orqella-Module-Token": "test-token",
+            }
 
             connection.request("POST", "/api/sessions", payload, headers)
             response = connection.getresponse()
@@ -89,6 +94,7 @@ class TerminalBackendTests(unittest.TestCase):
                 server.close_session(session_id)
             httpd.shutdown()
             httpd.server_close()
+            server.TOKEN = old_token
 
     def test_page_loads_vendored_xterm_stylesheet_first(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -217,6 +223,24 @@ class TerminalCoreTests(unittest.TestCase):
         large = server.ws_frame(2, b"x" * 65536)
         self.assertEqual(large[:2], bytes([0x82, 127]))
         self.assertEqual(int.from_bytes(large[2:10], "big"), 65536)
+
+    def test_ws_read_handles_truncated_frames_and_bad_resize_without_crashing(self) -> None:
+        import io
+
+        handler = server.Handler.__new__(server.Handler)
+        handler.rfile = io.BytesIO(bytes([0x81, 0xFE, 0x00]))  # truncated 16-bit length
+        self.assertEqual(handler.ws_read(), (None, b""))
+
+        handler.rfile = io.BytesIO(bytes([0x81, 0x82, 0x01, 0x02]))  # truncated mask
+        self.assertEqual(handler.ws_read(), (None, b""))
+
+        session = server.TerminalSession.__new__(server.TerminalSession)
+        session.lock = __import__("threading").Lock()
+        session.cols = 80
+        session.rows = 24
+        session.pty = type("FakePty", (), {"resize": lambda self, c, r: None})()
+        session.resize(None, "bad")
+        self.assertEqual((session.cols, session.rows), (80, 24))
 
 
 if __name__ == "__main__":

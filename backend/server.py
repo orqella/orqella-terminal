@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import platform
@@ -353,8 +354,11 @@ class TerminalSession:
             pass
 
     def resize(self, cols: int, rows: int) -> None:
-        cols = max(2, min(400, int(cols)))
-        rows = max(2, min(200, int(rows)))
+        try:
+            cols = max(2, min(400, int(cols)))
+            rows = max(2, min(200, int(rows)))
+        except (TypeError, ValueError):
+            return
         with self.lock:
             self.cols = cols
             self.rows = rows
@@ -461,7 +465,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def authorized(self) -> bool:
-        if not TOKEN or self.headers.get("X-Orqella-Module-Token") == TOKEN:
+        if not TOKEN:
+            self.send_json(401, {"error": "module token is not configured"})
+            return False
+        supplied = self.headers.get("X-Orqella-Module-Token") or ""
+        if hmac.compare_digest(supplied, TOKEN):
             return True
         self.send_json(401, {"error": "unauthorized"})
         return False
@@ -615,6 +623,8 @@ class Handler(BaseHTTPRequestHandler):
                     except json.JSONDecodeError:
                         session.write(data)
                         continue
+                    if not isinstance(message, dict):
+                        continue
                     kind = message.get("type")
                     if kind == "input":
                         text = str(message.get("data") or "")
@@ -643,21 +653,42 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
         self.close_connection = True
 
+    def _read_exact(self, count: int) -> bytes | None:
+        if count <= 0:
+            return b""
+        buf = bytearray()
+        while len(buf) < count:
+            chunk = self.rfile.read(count - len(buf))
+            if not chunk:
+                return None
+            buf.extend(chunk)
+        return bytes(buf)
+
     def ws_read(self) -> tuple[int | None, bytes]:
-        head = self.rfile.read(2)
-        if len(head) < 2:
+        head = self._read_exact(2)
+        if head is None:
             return None, b""
         opcode = head[0] & 0x0F
         masked = bool(head[1] & 0x80)
         size = head[1] & 0x7F
         if size == 126:
-            size = struct.unpack("!H", self.rfile.read(2))[0]
+            ext = self._read_exact(2)
+            if ext is None:
+                return None, b""
+            size = struct.unpack("!H", ext)[0]
         elif size == 127:
-            size = struct.unpack("!Q", self.rfile.read(8))[0]
+            ext = self._read_exact(8)
+            if ext is None:
+                return None, b""
+            size = struct.unpack("!Q", ext)[0]
         if size > MAX_FRAME:
             raise ValueError("websocket frame too large")
-        mask = self.rfile.read(4) if masked else b""
-        data = self.rfile.read(size)
+        mask = self._read_exact(4) if masked else b""
+        if mask is None:
+            return None, b""
+        data = self._read_exact(size)
+        if data is None:
+            return None, b""
         if masked and mask:
             data = bytes(byte ^ mask[index % 4] for index, byte in enumerate(data))
         return opcode, data

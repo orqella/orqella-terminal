@@ -984,8 +984,17 @@
   }
 
   function watchTheme() {
+    const parentOrigin = (() => {
+      try {
+        return location.ancestorOrigins?.[0]
+          || (document.referrer ? new URL(document.referrer).origin : "");
+      } catch (_) {
+        return "";
+      }
+    })();
     window.addEventListener("message", (event) => {
       if (event.source !== parent) return;
+      if (parentOrigin && event.origin !== parentOrigin) return;
       if (event.data?.type !== "orqella:context") return;
       state.config = event.data.context?.config || state.config;
       state.term.options.theme = buildTheme();
