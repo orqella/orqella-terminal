@@ -1,2 +1,2 @@
 # Windows uses ConPTY through pywinpty. Linux and macOS use the standard pty module.
-pywinpty>=2.0.13; sys_platform == "win32"
+pywinpty>=2.0.13,<3; sys_platform == "win32"

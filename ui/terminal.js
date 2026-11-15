@@ -741,12 +741,41 @@
     state.touchSelection = null;
   }
 
+  let textSheetResolve = null;
+  let textSheetMode = "copy";
+
+  function closeTextSheet(value = null) {
+    if (!textSheetResolve) return;
+    const resolve = textSheetResolve;
+    textSheetResolve = null;
+    $("textSheet").hidden = true;
+    $("textSheetBackdrop").hidden = true;
+    resolve(value);
+  }
+
+  function openTextSheet(title, value, mode) {
+    return new Promise((resolve) => {
+      textSheetResolve = resolve;
+      textSheetMode = mode;
+      $("textSheetTitle").textContent = title;
+      $("textSheetInput").value = value || "";
+      $("textSheetInput").readOnly = mode === "copy";
+      $("textSheetOk").textContent = mode === "paste" ? "Insert" : "Close";
+      $("textSheetBackdrop").hidden = false;
+      $("textSheet").hidden = false;
+      setTimeout(() => {
+        $("textSheetInput").focus();
+        if (mode === "copy") $("textSheetInput").select();
+      }, 0);
+    });
+  }
+
   async function pasteClipboard() {
     let text = "";
     try {
       text = await navigator.clipboard.readText();
     } catch (_) {
-      text = prompt("Paste into the terminal:") || "";
+      text = (await openTextSheet("Paste into terminal", "", "paste")) || "";
     }
     if (text) {
       state.term.paste(text);
@@ -761,7 +790,7 @@
       await navigator.clipboard.writeText(selection);
       toast("Copied");
     } catch (_) {
-      prompt("Copy terminal selection:", selection);
+      await openTextSheet("Copy terminal selection", selection, "copy");
     }
   }
 
@@ -922,6 +951,18 @@
     $("selectionCopy").onclick = copySelection;
     $("selectionAll").onclick = selectAllText;
     $("selectionDone").onclick = () => exitSelectionMode(true);
+    $("textSheetClose").onclick = () => closeTextSheet(null);
+    $("textSheetCancel").onclick = () => closeTextSheet(null);
+    $("textSheetBackdrop").onclick = () => closeTextSheet(null);
+    $("textSheetOk").onclick = () => closeTextSheet(
+      textSheetMode === "paste" ? $("textSheetInput").value : null,
+    );
+    $("textSheetInput").addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        $("textSheetOk").click();
+      }
+    });
     $("reconnectButton").onclick = () => {
       if (state.activeId) connectSocket(state.activeId, true);
     };
@@ -955,7 +996,10 @@
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        if (!$("closeDialog").hidden) {
+        if (!$("textSheet").hidden) {
+          event.preventDefault();
+          closeTextSheet(null);
+        } else if (!$("closeDialog").hidden) {
           event.preventDefault();
           hideCloseDialog();
         } else if (!$("menuPanel").hidden) {

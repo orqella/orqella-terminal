@@ -78,6 +78,24 @@
     </div>
   </section>
 
+  <div class="sheet-backdrop" id="textSheetBackdrop" hidden></div>
+  <section class="menu-panel text-sheet" id="textSheet" hidden role="dialog" aria-modal="true" aria-labelledby="textSheetTitle">
+    <div class="sheet-head">
+      <div>
+        <p class="eyebrow">Terminal</p>
+        <h2 id="textSheetTitle">Paste</h2>
+      </div>
+      <button class="icon-button" id="textSheetClose" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="sheet-body">
+      <textarea id="textSheetInput" rows="6" spellcheck="false" autocomplete="off"></textarea>
+      <div class="text-sheet-actions">
+        <button class="button ghost" id="textSheetCancel" type="button">Cancel</button>
+        <button class="button" id="textSheetOk" type="button">Insert</button>
+      </div>
+    </div>
+  </section>
+
   <div class="confirm-backdrop" id="closeBackdrop" hidden></div>
   <section class="confirm-dialog" id="closeDialog" hidden role="alertdialog" aria-modal="true" aria-labelledby="closeTitle" aria-describedby="closeText">
     <h2 id="closeTitle">Close tab?</h2>

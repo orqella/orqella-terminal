@@ -187,6 +187,27 @@ button { color: inherit; }
 #terminal.selecting { touch-action: none; }
 
 .sheet-backdrop { position: fixed; inset: 0; z-index: 40; background: var(--overlay-bg, rgba(17, 17, 27, .64)); backdrop-filter: blur(3px); }
+.text-sheet {
+  left: 50%;
+  right: auto;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-height: min(80vh, 560px);
+}
+.text-sheet textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  border: 1px solid var(--term-line);
+  border-radius: 8px;
+  background: var(--term-bg);
+  color: var(--term-ink);
+  padding: 8px;
+  font: 12px/1.45 var(--term-font);
+  outline: none;
+}
+.text-sheet textarea:focus { border-color: var(--term-accent); }
+.text-sheet-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
 .menu-panel {
   position: fixed;
   z-index: 41;

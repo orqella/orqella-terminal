@@ -49,8 +49,11 @@ browser's native `confirm()` modal.
   Use the selection bar to copy or dismiss it. **Select text** is also available
   in the palette.
 - Use **Fit** after rotating, changing font size, or opening the keyboard.
-- Copy/paste uses the clipboard where the WebView allows it, with a prompt
-  fallback.
+- Copy/paste uses the clipboard where the WebView allows it. If the clipboard
+  API is unavailable, the page opens an in-page paste/copy sheet instead of
+  using a native browser prompt, which sandboxed module frames block.
+- Set **Close idle tabs after** in Settings to reclaim shells that have no
+  browser attached; 0 keeps them until you close them.
 - The key bar is hidden on desktop; desktop keyboards and mouse selection use
   the normal terminal behavior.
 
@@ -60,7 +63,10 @@ This module runs unsandboxed (`backend.sandbox = false`) because it must spawn
 the user's shell and PTY. Treat it like any local terminal. The sidecar strips
 the Orqella module token from the child environment. It binds only loopback and
 authenticates both HTTP and WebSocket requests with the module token supplied by
-the daemon.
+the daemon. The page adds a short-lived per-sidecar WS token to the WebSocket
+query string; it rotates on restart and is never the module token. On
+SIGTERM/SIGINT the sidecar closes every PTY and shell; this keeps daemon
+restarts from leaving terminal children behind.
 
 ## Vendored UI
 

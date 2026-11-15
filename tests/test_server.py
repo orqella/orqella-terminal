@@ -109,6 +109,9 @@ class TerminalBackendTests(unittest.TestCase):
         script = (root / "ui" / "terminal.js").read_text(encoding="utf-8")
         self.assertIn('id="closeDialog"', page)
         self.assertNotIn("confirm(", script)
+        self.assertNotIn("prompt(", script)
+        self.assertIn('id="textSheet"', page)
+        self.assertIn("openTextSheet", script)
 
     def test_single_keybar_and_mobile_palette(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -163,6 +166,21 @@ class TerminalCoreTests(unittest.TestCase):
             server.CONFIG.clear()
             server.CONFIG.update(old)
 
+    def test_idle_timeout_is_clamped(self) -> None:
+        old = dict(server.CONFIG)
+        try:
+            for value, expected in [
+                ("0", 0),
+                ("5", 300),
+                ("99999", 1440 * 60),
+                ("bad", 0),
+            ]:
+                server.CONFIG["idle_timeout_minutes"] = value
+                self.assertEqual(server.idle_timeout_seconds(), expected, value)
+        finally:
+            server.CONFIG.clear()
+            server.CONFIG.update(old)
+
     def test_shell_resolution_rejects_missing_binaries(self) -> None:
         with self.assertRaises(ValueError):
             server.resolve_shell("/definitely/not/a/shell")
@@ -195,6 +213,26 @@ class TerminalCoreTests(unittest.TestCase):
         finally:
             self.assertTrue(server.close_session(session.id))
         self.assertFalse(server.close_session(session.id))
+
+    @unittest.skipIf(server.IS_WINDOWS, "POSIX shell test")
+    def test_natural_exit_code_is_recorded(self) -> None:
+        session = server.create_session({"shell": "/bin/sh", "cwd": "/"})
+        try:
+            session.write(b"exit 7\n")
+            deadline = __import__("time").time() + 5
+            while __import__("time").time() < deadline and session.status != "exited":
+                __import__("time").sleep(0.05)
+            self.assertEqual(session.status, "exited")
+            self.assertEqual(session.exit_code, 7)
+        finally:
+            server.close_session(session.id)
+
+    @unittest.skipIf(server.IS_WINDOWS, "POSIX shell test")
+    def test_shutdown_closes_sessions(self) -> None:
+        session = server.create_session({"shell": "/bin/sh", "cwd": "/"})
+        server.shutdown_sessions()
+        self.assertNotIn(session.id, server.SESSIONS)
+        self.assertEqual(session.status, "exited")
 
     @unittest.skipIf(server.IS_WINDOWS, "POSIX shell test")
     def test_session_limit_is_enforced_and_exited_slots_are_reused(self) -> None:

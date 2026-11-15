@@ -1,7 +1,7 @@
 schema = 1
 id = "terminal"
 name = "Terminal"
-version = "0.3.2"
+version = "0.3.3"
 api_version = "1"
 description = "Persistent local shells with a mobile-first tabbed terminal."
 entry = "ui/index.html"
@@ -83,3 +83,13 @@ type = "boolean"
 label = "Open a local shell automatically"
 default = true
 help = "Create a local tab when the page opens and no session is running."
+
+[[config.fields]]
+key = "idle_timeout_minutes"
+type = "number"
+label = "Close idle tabs after (minutes)"
+default = 0
+min = 0
+max = 1440
+step = 5
+help = "0 keeps tabs open until you close them. Idle tabs with no browser attached are closed after this many minutes."

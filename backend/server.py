@@ -11,6 +11,7 @@ the optional dependency is installed.
 """
 from __future__ import annotations
 
+import atexit
 import base64
 import hashlib
 import hmac
@@ -68,6 +69,14 @@ def buffer_limit() -> int:
     except (TypeError, ValueError):
         kb = 512
     return max(64, min(4096, kb)) * 1024
+
+
+def idle_timeout_seconds() -> int:
+    try:
+        minutes = int(CONFIG.get("idle_timeout_minutes") or 0)
+    except (TypeError, ValueError):
+        minutes = 0
+    return max(0, min(1440, minutes)) * 60
 
 
 def strip_secrets(env: dict[str, str]) -> dict[str, str]:
@@ -181,13 +190,19 @@ class UnixPty:
 
     def close(self) -> None:
         try:
-            pgid = os.getpgid(self.pid)
-        except OSError:
-            pgid = None
-        try:
             os.close(self.master)
         except OSError:
             pass
+        try:
+            pid, _status = os.waitpid(self.pid, os.WNOHANG)
+            if pid:
+                return
+        except (ChildProcessError, OSError):
+            pass
+        try:
+            pgid = os.getpgid(self.pid)
+        except OSError:
+            pgid = None
         if pgid is None:
             return
         for sig, wait_seconds in ((signal.SIGHUP, 0.15), (signal.SIGTERM, 0.15), (signal.SIGKILL, 0.15)):
@@ -261,6 +276,7 @@ class TerminalSession:
         self.created_at = now_iso()
         self.status = "running"
         self.exit_code: int | None = None
+        self.closed = False
         self.last_activity = time.time()
         self.lock = threading.Lock()
         self.clients: set[Client] = set()
@@ -293,10 +309,25 @@ class TerminalSession:
         with self.lock:
             self.status = "exited"
             clients = list(self.clients)
+        self._reap_exit()
         for client in clients:
             client.send("event", {"type": "exit", "session": self.id})
         if self.exit_code is None:
             self.exit_code = 0
+
+    def _reap_exit(self) -> None:
+        if IS_WINDOWS or not hasattr(self.pty, "pid"):
+            return
+        try:
+            pid, status = os.waitpid(self.pty.pid, os.WNOHANG)
+        except (ChildProcessError, OSError):
+            return
+        if not pid:
+            return
+        if os.WIFEXITED(status):
+            self.exit_code = os.WEXITSTATUS(status)
+        elif os.WIFSIGNALED(status):
+            self.exit_code = 128 + os.WTERMSIG(status)
 
     def info(self) -> dict:
         with self.lock:
@@ -365,10 +396,13 @@ class TerminalSession:
         self.pty.resize(cols, rows)
 
     def close(self) -> None:
-        self.pty.close()
         with self.lock:
+            if self.closed:
+                return
+            self.closed = True
             self.status = "exited"
             clients = list(self.clients)
+        self.pty.close()
         for client in clients:
             client.send("event", {"type": "exit", "session": self.id})
 
@@ -410,6 +444,29 @@ def close_session(session_id: str) -> bool:
         return False
     session.close()
     return True
+
+
+def shutdown_sessions() -> None:
+    with SESSIONS_LOCK:
+        sessions = list(SESSIONS.values())
+        SESSIONS.clear()
+    for session in sessions:
+        session.close()
+
+
+def reap_idle_sessions() -> None:
+    while True:
+        time.sleep(30)
+        timeout = idle_timeout_seconds()
+        if timeout <= 0:
+            continue
+        with SESSIONS_LOCK:
+            sessions = list(SESSIONS.values())
+        for session in sessions:
+            with session.lock:
+                idle = not session.clients and (time.time() - session.last_activity) > timeout
+            if idle:
+                close_session(session.id)
 
 
 def status_payload() -> dict:
@@ -704,13 +761,23 @@ def main() -> None:
     port = int(os.environ["ORQELLA_MODULE_PORT"])
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
+    atexit.register(shutdown_sessions)
+    if idle_timeout_seconds() > 0:
+        threading.Thread(target=reap_idle_sessions, name="terminal-idle", daemon=True).start()
+
+    def _terminate(_signum, _frame):
+        raise SystemExit(0)
+
+    for name in ("SIGTERM", "SIGINT"):
+        if hasattr(signal, name):
+            try:
+                signal.signal(getattr(signal, name), _terminate)
+            except (OSError, ValueError):
+                pass
     try:
         server.serve_forever()
     finally:
-        with SESSIONS_LOCK:
-            sessions = list(SESSIONS.values())
-        for session in sessions:
-            session.close()
+        shutdown_sessions()
 
 
 if __name__ == "__main__":
