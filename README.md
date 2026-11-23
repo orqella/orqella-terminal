@@ -1,5 +1,7 @@
 # Terminal
 
+![The Terminal module with two tabs and a running test suite](docs/screenshot.png)
+
 A persistent local terminal for Orqella with a mobile-first tabbed UI built
 around xterm.js.
 
